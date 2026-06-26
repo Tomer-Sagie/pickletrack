@@ -1,0 +1,292 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <!-- Prevent the preview page itself from being cached -->
+  <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+  <meta http-equiv="Pragma" content="no-cache">
+  <meta http-equiv="Expires" content="0">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>PickleTrack — Phone Preview</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      background: #1a1a2e;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      min-height: 100vh;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      overflow: hidden;
+    }
+
+    .info-bar {
+      color: #888;
+      font-size: 13px;
+      margin-bottom: 12px;
+      display: flex;
+      gap: 16px;
+      align-items: center;
+    }
+
+    .info-bar .badge {
+      background: #2a2a4e;
+      padding: 4px 10px;
+      border-radius: 6px;
+      color: #aaa;
+      font-size: 11px;
+    }
+
+    .info-bar .status {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 11px;
+    }
+
+    .status-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: #444;
+      transition: background 0.3s;
+    }
+
+    .status-dot.live   { background: #4ade80; }
+    .status-dot.building { background: #fbbf24; animation: pulse 1s infinite; }
+    .status-dot.error   { background: #f87171; }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.4; }
+    }
+
+    .phone-frame {
+      width: 414px;
+      height: 896px;
+      border-radius: 44px;
+      background: #000;
+      padding: 10px;
+      box-shadow: 0 0 0 2px #333, 0 20px 60px rgba(0,0,0,0.5);
+      position: relative;
+    }
+
+    .phone-screen {
+      width: 100%;
+      height: 100%;
+      border-radius: 34px;
+      overflow: hidden;
+      background: #fff;
+    }
+
+    .phone-screen iframe {
+      width: 100%;
+      height: 100%;
+      border: none;
+      display: block;
+    }
+
+    /* Dynamic island simulation */
+    .island {
+      position: absolute;
+      top: 18px;
+      left: 50%;
+      transform: translateX(-50%);
+      width: 120px;
+      height: 32px;
+      background: #000;
+      border-radius: 20px;
+      z-index: 10;
+      pointer-events: none;
+    }
+
+    .shortcuts {
+      margin-top: 12px;
+      display: flex;
+      gap: 8px;
+    }
+
+    .shortcuts button {
+      background: #2a2a4e;
+      color: #aaa;
+      border: 1px solid #444;
+      padding: 6px 14px;
+      border-radius: 8px;
+      cursor: pointer;
+      font-size: 12px;
+      transition: all 0.15s;
+    }
+
+    .shortcuts button:hover {
+      background: #3a3a5e;
+      color: #fff;
+    }
+
+    .shortcuts button.active {
+      background: #2d5a3d;
+      color: #4ade80;
+      border-color: #4ade80;
+    }
+
+    .build-msg {
+      margin-top: 6px;
+      font-size: 11px;
+      color: #666;
+      height: 16px;
+    }
+  </style>
+</head>
+<body>
+  <div class="info-bar">
+    <span>PickleTrack Phone Preview</span>
+    <span class="badge">iPhone 15 Pro — 393×852</span>
+    <span class="status">
+      <span class="status-dot" id="statusDot"></span>
+      <span id="statusText">Connecting…</span>
+    </span>
+  </div>
+
+  <div class="phone-frame">
+    <div class="island"></div>
+    <div class="phone-screen">
+      <iframe id="appFrame" src="./index.html"></iframe>
+    </div>
+  </div>
+
+  <div class="shortcuts">
+    <button id="autoBtn" onclick="toggleAuto()">Auto-Refresh: ON</button>
+    <button onclick="manualReload()">Reload Now</button>
+    <button onclick="openFullscreen()">Open Fullscreen</button>
+  </div>
+
+  <div class="build-msg" id="buildMsg"></div>
+
+  <script>
+    // ── State ──
+    let autoRefresh = true;
+    let lastBuildTs = null;
+    let pollTimer = null;
+    let consecutiveErrors = 0;
+
+    // ── Service Worker Cleanup ──
+    // Flutter web registers a service worker that aggressively caches
+    // main.dart.js and other assets.  We unregister ALL service workers
+    // + clear cache storage before loading the iframe so every reload
+    // fetches fresh files from the server.
+    async function killServiceWorkers() {
+      if ('serviceWorker' in navigator) {
+        const regs = await navigator.serviceWorker.getRegistrations();
+        for (const r of regs) {
+          await r.unregister();
+        }
+      }
+      if ('caches' in window) {
+        const keys = await caches.keys();
+        for (const k of keys) {
+          await caches.delete(k);
+        }
+      }
+    }
+
+    // ── Reload iframe with cache-busting ──
+    async function reloadIframe() {
+      await killServiceWorkers();
+      const iframe = document.getElementById('appFrame');
+      // Cache-busting query param ensures the browser doesn't serve
+      // a cached index.html. Combined with SW unregistration above,
+      // this guarantees a fresh load every time.
+      iframe.src = './index.html?t=' + Date.now();
+    }
+
+    function manualReload() {
+      setStatus('building', 'Reloading…');
+      reloadIframe().then(() => {
+        setStatus('live', 'Live');
+        setBuildMsg('Last refresh: ' + timeNow());
+      });
+    }
+
+    function openFullscreen() {
+      window.open('./index.html', '_blank');
+    }
+
+    // ── Auto-refresh via build timestamp polling ──
+    // The watch_web.sh script writes a .build_timestamp file to
+    // build/web/ after each successful rebuild.  We poll it every 2s
+    // and auto-reload the iframe when the timestamp changes.
+    async function pollBuildStatus() {
+      try {
+        const resp = await fetch('./.build_timestamp?t=' + Date.now(), {
+          cache: 'no-store'
+        });
+        if (!resp.ok) throw new Error('not found');
+        const ts = await resp.text();
+
+        consecutiveErrors = 0;
+
+        if (lastBuildTs === null) {
+          // First poll — just record the timestamp, don't reload
+          lastBuildTs = ts.trim();
+          setStatus('live', 'Live');
+          return;
+        }
+
+        if (ts.trim() !== lastBuildTs) {
+          lastBuildTs = ts.trim();
+          setStatus('building', 'New build detected — refreshing…');
+          setBuildMsg('New build at ' + timeNow());
+          if (autoRefresh) {
+            await reloadIframe();
+            setStatus('live', 'Live');
+            setBuildMsg('Auto-refreshed: ' + timeNow());
+          } else {
+            setStatus('live', 'Live (auto off)');
+            setBuildMsg('New build ready — click Reload');
+          }
+        }
+      } catch (e) {
+        consecutiveErrors++;
+        if (consecutiveErrors > 3) {
+          setStatus('error', 'Watch script not running?');
+          setBuildMsg('Start it: bash scripts/watch_web.sh');
+        }
+      }
+    }
+
+    // ── UI helpers ──
+    function setStatus(cls, text) {
+      const dot = document.getElementById('statusDot');
+      const label = document.getElementById('statusText');
+      dot.className = 'status-dot ' + cls;
+      label.textContent = text;
+    }
+
+    function setBuildMsg(msg) {
+      document.getElementById('buildMsg').textContent = msg;
+    }
+
+    function timeNow() {
+      return new Date().toLocaleTimeString();
+    }
+
+    function toggleAuto() {
+      autoRefresh = !autoRefresh;
+      const btn = document.getElementById('autoBtn');
+      btn.textContent = 'Auto-Refresh: ' + (autoRefresh ? 'ON' : 'OFF');
+      btn.classList.toggle('active', autoRefresh);
+    }
+
+    // ── Init ──
+    // Kill any existing service workers on page load, then start polling
+    killServiceWorkers().then(() => {
+      document.getElementById('autoBtn').classList.add('active');
+      reloadIframe();
+      setStatus('live', 'Live');
+      setBuildMsg('Ready — waiting for builds');
+      pollTimer = setInterval(pollBuildStatus, 2000);
+    });
+  </script>
+</body>
+</html>
