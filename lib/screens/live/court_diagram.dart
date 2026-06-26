@@ -36,17 +36,14 @@ class CourtDiagram extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final brightness = Theme.of(context).brightness;
-    return SizedBox(
-      height: 240,
-      child: CustomPaint(
-        painter: _CourtPainter(
-          players: players,
-          servingPlayerId: servingPlayerId,
-          isDoubles: isDoubles,
-          brightness: brightness,
-        ),
-        child: const SizedBox.expand(),
+    return CustomPaint(
+      painter: _CourtPainter(
+        players: players,
+        servingPlayerId: servingPlayerId,
+        isDoubles: isDoubles,
+        brightness: brightness,
       ),
+      child: const SizedBox.expand(),
     );
   }
 }
@@ -221,7 +218,7 @@ class _CourtPainter extends CustomPainter {
     for (final player in players) {
       final isServer = player.id == servingPlayerId;
       final pos = m.playerDot(player.team, player.side);
-      const radius = 15.0;
+      final radius = (m.size.height * 0.05).clamp(12.0, 20.0);
 
       // Drop shadow (simple offset circle — no MaskFilter for performance)
       canvas.drawCircle(

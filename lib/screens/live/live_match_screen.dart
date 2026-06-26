@@ -366,10 +366,11 @@ class _LiveMatchScreenState extends ConsumerState<LiveMatchScreen> {
         child: SafeArea(
           child: Column(children: [
             const SizedBox(height: 8),
-            _buildCourtDiagram(liveState),
+            // Court fills available space at the top
+            Expanded(child: _buildCourtDiagram(liveState)),
             const SizedBox(height: 10),
             _buildUnifiedScore(liveState, theme),
-            const Spacer(),
+            const SizedBox(height: 10),
             _buildPointButtons(liveState),
             const SizedBox(height: 8),
             _buildBottomBar(liveState, theme),
@@ -584,7 +585,7 @@ class _LiveMatchScreenState extends ConsumerState<LiveMatchScreen> {
           key: ValueKey(score),
           style: theme.textTheme.displaySmall?.copyWith(
             fontWeight: FontWeight.w900,
-            fontSize: 52,
+            fontSize: 56,
             color: showGlow
                 ? accentColor
                 : theme.colorScheme.onSurface,
@@ -627,7 +628,7 @@ class _LiveMatchScreenState extends ConsumerState<LiveMatchScreen> {
       child: Row(children: [
         Expanded(
           child: SizedBox(
-            height: 68,
+            height: 80,
             child: Semantics(
               button: true,
               label: 'Team A Scores',
@@ -644,7 +645,7 @@ class _LiveMatchScreenState extends ConsumerState<LiveMatchScreen> {
                 ),
                 child: const Text('Team A',
                     style:
-                        TextStyle(fontSize: 18, fontWeight: FontWeight.w800)),
+                        TextStyle(fontSize: 20, fontWeight: FontWeight.w800)),
               ),
             ),
           ),
@@ -652,7 +653,7 @@ class _LiveMatchScreenState extends ConsumerState<LiveMatchScreen> {
         const SizedBox(width: 12),
         Expanded(
           child: SizedBox(
-            height: 68,
+            height: 80,
             child: Semantics(
               button: true,
               label: 'Team B Scores',
@@ -669,7 +670,7 @@ class _LiveMatchScreenState extends ConsumerState<LiveMatchScreen> {
                 ),
                 child: const Text('Team B',
                     style:
-                        TextStyle(fontSize: 18, fontWeight: FontWeight.w800)),
+                        TextStyle(fontSize: 20, fontWeight: FontWeight.w800)),
               ),
             ),
           ),
