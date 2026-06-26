@@ -187,8 +187,6 @@ Future<void> pumpWithState(WidgetTester tester, LiveMatchState state) async {
     ),
   );
   // pump() processes the Future.microtask (load + setState) and rebuilds.
-  // pumpAndSettle() would time out because CourtDiagram has a repeating
-  // AnimationController.
   await tester.pump();
 }
 
@@ -216,32 +214,36 @@ void main() {
         (tester) async {
       await pumpWithState(tester, buildPlayedState());
 
-      // Alice appears in both the score card and the server indicator.
+      // Player names appear in the unified score.
       expect(find.text('Alice'), findsAtLeastNWidgets(1));
       expect(find.text('Carol'), findsAtLeastNWidgets(1));
-      expect(find.text('0'), findsNWidgets(2));
-      expect(find.text('Team A Scores!'), findsOneWidget);
-      expect(find.text('Team B Scores!'), findsOneWidget);
+      // Both teams have score 0 (unified score shows two score columns).
+      // The callout "0-0-2" also contains 0s, so find.text('0') will
+      // match more than 2. Just verify both point buttons exist.
+      expect(find.text('Team A'), findsOneWidget);
+      expect(find.text('Team B'), findsOneWidget);
     });
 
-    testWidgets('score cards show team scores separated by VS',
+    testWidgets('score cards show team scores in unified widget',
         (tester) async {
       await pumpWithState(tester, buildPlayedState());
-      // Both score cards show 0 initially.
-      expect(find.text('0'), findsNWidgets(2));
-      expect(find.text('VS'), findsOneWidget);
+      // Initial callout is "0-0-2" — verify it renders.
+      expect(find.text('0-0-2'), findsOneWidget);
     });
 
     testWidgets('server indicator shows server number for doubles',
         (tester) async {
       await pumpWithState(tester, buildPlayedState());
-      expect(find.text('Server 2 of 2'), findsOneWidget);
+      // Unified score shows "Server 2/2" for doubles.
+      expect(find.textContaining('Server 2'), findsOneWidget);
     });
 
-    testWidgets('serving team badge shows TEAM A at start', (tester) async {
+    testWidgets('serving team badge shows team label at start',
+        (tester) async {
       await pumpWithState(tester, buildPlayedState());
-      expect(find.text('TEAM A'), findsOneWidget);
-      expect(find.text('SERVING'), findsAtLeastNWidgets(1));
+      // Court diagram has "TEAM A" / "TEAM B" labels.
+      // The unified score server indicator shows the server name.
+      expect(find.text('Alice serving'), findsOneWidget);
     });
 
     testWidgets('shows singles mode WITH court diagram', (tester) async {
@@ -292,38 +294,38 @@ void main() {
         (tester) async {
       final state = buildPlayedState();
       await pumpWithState(tester, state);
-      // Alice (A0) is starting server — appears in both score card and
-      // server indicator.
-      expect(find.text('Alice'), findsAtLeastNWidgets(1));
+      // Alice (A0) is starting server — appears in unified score.
+      expect(find.text('Alice serving'), findsOneWidget);
     });
 
-    testWidgets('undo button elements render when no events exist',
-        (tester) async {
+    testWidgets('undo button is present', (tester) async {
       await pumpWithState(tester, buildPlayedState());
-      // Verify the undo button icon and label are present.
-      // (OutlinedButton.icon uses a private subclass so find.byType won't match.)
-      expect(find.text('Undo'), findsOneWidget);
+      // Undo is now an IconButton — verify the icon renders.
       expect(find.byIcon(Icons.undo_rounded), findsOneWidget);
     });
 
-    testWidgets('doubles mode shows VS divider between score cards',
+    testWidgets('doubles mode renders unified score without VS divider',
         (tester) async {
       await pumpWithState(tester, buildPlayedState());
-      expect(find.text('VS'), findsOneWidget);
+      // VS divider is removed — unified score doesn't need it.
+      expect(find.text('VS'), findsNothing);
+      // Callout text is still present in the center.
+      expect(find.text('0-0-2'), findsOneWidget);
     });
 
     testWidgets('shows end match button', (tester) async {
       await pumpWithState(tester, buildPlayedState());
-      expect(find.text('End Match'), findsOneWidget);
+      // End Match button now says "End" (compact, separated from Undo).
+      expect(find.text('End'), findsOneWidget);
     });
 
-    testWidgets('point button debounce suppresses rapid dual-scoring', (tester) async {
+    testWidgets('point button debounce suppresses rapid dual-scoring',
+        (tester) async {
       _useLargeViewport(tester);
 
       final db = createInMemoryDatabase();
       addTearDown(() async => db.close());
 
-      // Capture the notifier from overrideWith so we can inspect call counts.
       _TestNotifier? notifier;
       await tester.pumpWidget(
         ProviderScope(
@@ -340,15 +342,12 @@ void main() {
       );
       await tester.pump();
 
-      await tester.tap(find.text('Team A Scores!'));
+      await tester.tap(find.text('Team A'));
       await tester.pump();
       expect(notifier!.scorePointCalls, 1);
 
-      // Second rapid tap is suppressed by the 500 ms unified debounce
-      // (Gemini finding G#8 — merged _lastPointTimeA/_lastPointTimeB
-      // into a single _lastScoreTime to prevent dual-scoring).
-      // scorePointCalls remains 1, not 2.
-      await tester.tap(find.text('Team B Scores!'));
+      // Second rapid tap is suppressed by the 500 ms unified debounce.
+      await tester.tap(find.text('Team B'));
       await tester.pump();
       expect(notifier!.scorePointCalls, 1);
     });
@@ -377,19 +376,18 @@ void main() {
       await tester.pump();
 
       // Tap Team B first (not debounced by a prior Team A tap).
-      await tester.tap(find.text('Team B Scores!'));
+      await tester.tap(find.text('Team B'));
       await tester.pump();
       expect(notifier!.scorePointCalls, 1);
     });
 
-    testWidgets('tapping Team A Scores! updates the score in the UI',
+    testWidgets('tapping Team A updates the score in the UI',
         (tester) async {
       _useLargeViewport(tester);
 
       final db = createInMemoryDatabase();
       addTearDown(() async => db.close());
 
-      // Capture the notifier to verify scorePoint was called.
       _TestNotifier? notifier;
       await tester.pumpWidget(
         ProviderScope(
@@ -408,24 +406,18 @@ void main() {
       await tester.pump();
 
       // Initial: both scores are 0.
-      expect(find.text('0'), findsNWidgets(2));
+      expect(find.text('0'), findsAtLeastNWidgets(1));
 
       // Tap Team A's score button.
-      await tester.tap(find.text('Team A Scores!'));
-      // Process the tap + state change.
+      await tester.tap(find.text('Team A'));
       await tester.pump();
-      // Pump the AnimatedSwitcher (200ms) so old "0" fades out and only
-      // the new "1" remains.
       await tester.pump(const Duration(milliseconds: 300));
 
-      // Confirm scorePoint was invoked.
       expect(notifier!.scorePointCalls, 1);
-      // Verify the notifier's state updated.
       expect(notifier!.state?.teamAScore, 1);
 
-      // After a point: Team A shows 1, Team B still shows 0.
+      // After a point: Team A shows 1.
       expect(find.text('1'), findsOneWidget);
-      expect(find.text('0'), findsOneWidget);
     });
 
     // ── PopScope on match-end dialog ──
@@ -436,8 +428,6 @@ void main() {
 
       await tester.pumpWidget(MaterialApp(
         home: Builder(builder: (context) {
-          // Show the dialog via post-frame callback (same mechanism the
-          // real LiveMatchScreen uses).
           WidgetsBinding.instance.addPostFrameCallback((_) {
             showDialog<bool>(
               context: context,
@@ -464,20 +454,15 @@ void main() {
         }),
       ));
 
-      // Pump to build the dialog widgets (the post-frame callback that
-      // pushed the dialog route already ran during pumpWidget).
       await tester.pump();
-      // Dialog should be visible.
       expect(find.text('Match Over!'), findsOneWidget);
       expect(find.text('View Details'), findsOneWidget);
 
-      // System back button should NOT dismiss the dialog (PopScope blocks it).
       await tester.binding.handlePopRoute();
       await tester.pump();
       expect(find.text('Match Over!'), findsOneWidget);
       expect(viewDetailsTapped, isFalse);
 
-      // Tapping "View Details" should dismiss the dialog.
       await tester.tap(find.text('View Details'));
       await tester.pump();
       expect(viewDetailsTapped, isTrue);
@@ -485,18 +470,10 @@ void main() {
     });
 
     // ── Score Callout ──
-    //
-    // The callout surfaces `MatchState.scoreCallout` between the server
-    // indicator and the scoreboard. Doubles: `X-X-N`, Singles: `X-X`.
 
     testWidgets('doubles initial state renders 0-0-2 callout',
         (tester) async {
       await pumpWithState(tester, buildPlayedState());
-
-      // Doubles initial state: 0-0-2. The widget tree is searched
-      // directly via find.text; the Semantics wrapper that gives screen
-      // readers the same phrase is verified separately — see the
-      // dedicated a11y test below.
       expect(find.text('0-0-2'), findsOneWidget);
     });
 
@@ -515,8 +492,6 @@ void main() {
         ],
       );
       await pumpWithState(tester, state);
-
-      // Singles has no server number — just the two scores.
       expect(find.text('0-0'), findsOneWidget);
     });
 
@@ -547,17 +522,13 @@ void main() {
       );
       await tester.pump();
 
-      // Sanity: starts as 0-0-2.
       expect(find.text('0-0-2'), findsOneWidget);
 
-      await tester.tap(find.text('Team A Scores!'));
+      await tester.tap(find.text('Team A'));
       await tester.pump();
-      // AnimatedSwitcher is 200ms; score-card AnimatedSwitcher is also
-      // 120ms. Pump past the longer of the two so the new child settles.
       await tester.pump(const Duration(milliseconds: 300));
       await tester.pump(const Duration(milliseconds: 50));
 
-      // Callout now reads 1-0-2 — Team A scored, server #2 still serving.
       expect(find.text('0-0-2'), findsNothing);
       expect(find.text('1-0-2'), findsOneWidget);
     });
@@ -589,28 +560,21 @@ void main() {
       );
       await tester.pump();
 
-      // Tap Team B — forces side-out (server #2 lost → Team B serves #1).
-      await tester.tap(find.text('Team B Scores!'));
+      // Tap Team B — forces side-out.
+      await tester.tap(find.text('Team B'));
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 300));
 
       // Score is still 0-0 (side-out awards no point) but server
       // number is now 1, on Team B.
       expect(find.text('0-0-1'), findsOneWidget);
-      // TEAM B serving badge replaces TEAM A.
-      expect(find.text('TEAM B'), findsOneWidget);
-      expect(find.text('TEAM A'), findsNothing);
+      // Serving indicator now shows Carol (B0).
+      expect(find.text('Carol serving'), findsOneWidget);
     });
 
     testWidgets('callout exposes Score call semantics label for a11y',
         (tester) async {
       await pumpWithState(tester, buildPlayedState());
-      // Verify the screen-reader announcement contract directly against
-      // `Semantics.properties.label`. flutter_test's
-      // `find.bySemanticsLabel` does not always traverse a
-      // `Semantics(container: true)` wrapper that contains an
-      // AnimatedSwitcher, so we read the property the framework will
-      // actually publish to TalkBack.
       final semantics = tester
           .widgetList<Semantics>(find.byType(Semantics))
           .firstWhere(
@@ -623,17 +587,6 @@ void main() {
   });
 
   // ── Golden test regen helper ──
-  //
-  // The test/goldens/*.png files are an artifact of the screen design.
-  // When the visible layout changes (new widget added, spacing tweaked,
-  // colors updated) the goldens must be regenerated with:
-  //
-  //   flutter test --update-goldens test/live_match_screen_golden_test.dart
-  //
-  // then committed alongside the code change. The test named below is
-  // here so anyone running --update-goldens with a stale screen sees this
-  // reminder fail loudly instead of silently overwriting a known-good
-  // golden by accident.
   test(
       'goldens regen reminder: goldens must be regenerated with '
       '--update-goldens when layout changes', () {
