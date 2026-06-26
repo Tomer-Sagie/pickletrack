@@ -20,10 +20,8 @@ class PlayerPosition {
 /// The court is drawn top-to-bottom: Team A at the top, Team B at the
 /// bottom, net running horizontally through the center.
 ///
-/// Player positions are shown as small circles with initials. The
-/// serving player gets a high-contrast white outline ring (visible on
-/// both green and blue surfaces in sunlight). Team labels live inside
-/// the playing surface with proper padding so they never clip.
+/// Uses nested CustomPaint with a SizedBox.expand() fill child instead
+/// of LayoutBuilder+Stack to avoid layout-cycle-prone patterns.
 class CourtDiagram extends StatelessWidget {
   final List<PlayerPosition> players;
   final String? servingPlayerId;
@@ -41,31 +39,20 @@ class CourtDiagram extends StatelessWidget {
     final brightness = Theme.of(context).brightness;
     return SizedBox(
       height: 240,
-      child: LayoutBuilder(
-        builder: (context, constraints) {
-          return Stack(
-            children: [
-              RepaintBoundary(
-                child: CustomPaint(
-                  painter: _CourtSurfacePainter(
-                    isDoubles: isDoubles,
-                    brightness: brightness,
-                  ),
-                  size: Size(constraints.maxWidth, 240),
-                ),
-              ),
-              CustomPaint(
-                painter: _PlayerPositionPainter(
-                  players: players,
-                  servingPlayerId: servingPlayerId,
-                  isDoubles: isDoubles,
-                  brightness: brightness,
-                ),
-                size: Size(constraints.maxWidth, 240),
-              ),
-            ],
-          );
-        },
+      child: CustomPaint(
+        painter: _CourtSurfacePainter(
+          isDoubles: isDoubles,
+          brightness: brightness,
+        ),
+        child: CustomPaint(
+          painter: _PlayerPositionPainter(
+            players: players,
+            servingPlayerId: servingPlayerId,
+            isDoubles: isDoubles,
+            brightness: brightness,
+          ),
+          child: const SizedBox.expand(),
+        ),
       ),
     );
   }
@@ -363,9 +350,9 @@ class _Metrics {
 
   // ── Team labels (inside the surface, padded from edges) ──
   Offset get teamALabelPos => Offset(
-      surfaceRect.center.dx, surfaceRect.top - 16); // above surface, in padding zone
+      surfaceRect.center.dx, surfaceRect.top - 16);
   Offset get teamBLabelPos => Offset(
-      surfaceRect.center.dx, surfaceRect.bottom + 16); // below surface, in padding zone
+      surfaceRect.center.dx, surfaceRect.bottom + 16);
 }
 
 // ── Theme-aware Court Colors ──
@@ -405,7 +392,6 @@ class _CourtColors {
     return brightness == Brightness.dark ? _dark : _light;
   }
 
-  // ── Light mode ──
   static const _light = _CourtColors._(
     surround: Color(0xFF2B5797),
     surface: Color(0xFF4A8C3F),
@@ -415,14 +401,13 @@ class _CourtColors {
     centerLine: Color(0x73FFFFFF),
     net: Color(0xFF444444),
     teamLabel: Color(0xB3FFFFFF),
-    playerDot: Color(0xD9FFFFFF), // white @ 85%
-    serverDot: Color(0xFFC8E030), // primary
-    serverRing: Color(0xFFFFFFFF), // solid white — maximum contrast on green
-    initialsText: Color(0xFF1A2800), // dark on bright primary
+    playerDot: Color(0xD9FFFFFF),
+    serverDot: Color(0xFFC8E030),
+    serverRing: Color(0xFFFFFFFF),
+    initialsText: Color(0xFF1A2800),
     nameLabel: Color(0xE6FFFFFF),
   );
 
-  // ── Dark mode ──
   static const _dark = _CourtColors._(
     surround: Color(0xFF1A3058),
     surface: Color(0xFF2A4F22),
@@ -434,8 +419,8 @@ class _CourtColors {
     teamLabel: Color(0x8CFFFFFF),
     playerDot: Color(0xD9FFFFFF),
     serverDot: Color(0xFFC8E030),
-    serverRing: Color(0xFFFFFFFF), // solid white ring
-    initialsText: Color(0xFF1A2800), // dark text on bright dot
+    serverRing: Color(0xFFFFFFFF),
+    initialsText: Color(0xFF1A2800),
     nameLabel: Color(0xCCFFFFFF),
   );
 }

@@ -35,6 +35,7 @@ class _LiveMatchScreenState extends ConsumerState<LiveMatchScreen> {
   bool _hapticEnabled = true;
   Timer? _elapsedTimer;
   String _elapsedStr = '00:00';
+  bool _elapsedStarted = false; // flag to start timer once after load
 
   @override
   void initState() {
@@ -346,7 +347,9 @@ class _LiveMatchScreenState extends ConsumerState<LiveMatchScreen> {
           ])));
     }
 
-    if (_elapsedTimer == null) {
+    // Start the elapsed timer once after the match screen loads.
+    if (!_elapsedStarted) {
+      _elapsedStarted = true;
       _elapsedStr = _formatElapsed(liveState.match.createdAt);
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted) _startElapsedTimer(liveState.match.createdAt);
@@ -370,7 +373,6 @@ class _LiveMatchScreenState extends ConsumerState<LiveMatchScreen> {
             _buildPointButtons(liveState),
             const SizedBox(height: 8),
             _buildBottomBar(liveState, theme),
-            // Extra padding for gesture bar clearance
             const SizedBox(height: 8),
           ]),
         ),
@@ -439,11 +441,6 @@ class _LiveMatchScreenState extends ConsumerState<LiveMatchScreen> {
   }
 
   // ── Unified Score Widget ──
-  //
-  // A single cohesive display replacing what was previously three
-  // separate widgets (server indicator, score callout, scoreboard).
-  // The eye no longer needs to scan across three zones to piece
-  // together the game state.
 
   Widget _buildUnifiedScore(LiveMatchState state, ThemeData theme) {
     final serverTeam = state.serverTeam ?? 'A';
@@ -458,9 +455,7 @@ class _LiveMatchScreenState extends ConsumerState<LiveMatchScreen> {
 
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 12),
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 150),
-        curve: Curves.easeOut,
+      child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
         decoration: BoxDecoration(
           color: theme.colorScheme.surfaceContainerHighest,
@@ -527,27 +522,14 @@ class _LiveMatchScreenState extends ConsumerState<LiveMatchScreen> {
                     child: Column(
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        AnimatedSwitcher(
-                          duration: const Duration(milliseconds: 200),
-                          switchInCurve: Curves.easeOut,
-                          switchOutCurve: Curves.easeIn,
-                          transitionBuilder: (child, animation) =>
-                              ScaleTransition(
-                            scale: Tween<double>(begin: 0.92, end: 1.0)
-                                .animate(animation),
-                            child: FadeTransition(
-                                opacity: animation, child: child),
-                          ),
-                          child: Text(
-                            callout,
-                            key: ValueKey(callout),
-                            style: theme.textTheme.titleMedium?.copyWith(
-                              fontWeight: FontWeight.w800,
-                              color: theme.colorScheme.onSurfaceVariant,
-                              fontFeatures: const [
-                                FontFeature.tabularFigures()
-                              ],
-                            ),
+                        Text(
+                          callout,
+                          style: theme.textTheme.titleMedium?.copyWith(
+                            fontWeight: FontWeight.w800,
+                            color: theme.colorScheme.onSurfaceVariant,
+                            fontFeatures: const [
+                              FontFeature.tabularFigures()
+                            ],
                           ),
                         ),
                         const SizedBox(height: 2),
@@ -597,22 +579,16 @@ class _LiveMatchScreenState extends ConsumerState<LiveMatchScreen> {
             )),
         const SizedBox(height: 4),
         // Score number
-        AnimatedSwitcher(
-          duration: const Duration(milliseconds: 120),
-          switchInCurve: Curves.easeOut,
-          transitionBuilder: (child, animation) =>
-              ScaleTransition(scale: animation, child: child),
-          child: Text(
-            '$score',
-            key: ValueKey(score),
-            style: theme.textTheme.displaySmall?.copyWith(
-              fontWeight: FontWeight.w900,
-              fontSize: 52,
-              color: showGlow
-                  ? accentColor
-                  : theme.colorScheme.onSurface,
-              fontFeatures: const [FontFeature.tabularFigures()],
-            ),
+        Text(
+          '$score',
+          key: ValueKey(score),
+          style: theme.textTheme.displaySmall?.copyWith(
+            fontWeight: FontWeight.w900,
+            fontSize: 52,
+            color: showGlow
+                ? accentColor
+                : theme.colorScheme.onSurface,
+            fontFeatures: const [FontFeature.tabularFigures()],
           ),
         ),
         // Games won dots
@@ -646,10 +622,6 @@ class _LiveMatchScreenState extends ConsumerState<LiveMatchScreen> {
     final servingA = state.isTeamServing(Team.A);
     final servingB = state.isTeamServing(Team.B);
 
-    // Both buttons are always solid filled — same visual weight.
-    // The non-serving team's button is dimmed slightly (not ghosted)
-    // to indicate who has the serve without implying one action is
-    // preferred. In rally scoring both are always at full strength.
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 12),
       child: Row(children: [
@@ -735,8 +707,7 @@ class _LiveMatchScreenState extends ConsumerState<LiveMatchScreen> {
             ),
           ),
           const Spacer(),
-          // End Match — separated from Undo by Spacer, clearly
-          // differentiated as a destructive action
+          // End Match — separated from Undo by Spacer
           Semantics(
             button: true,
             label: 'End this match and save final scores',
