@@ -2,7 +2,8 @@ import 'package:flutter/foundation.dart' show
     debugPrint, defaultTargetPlatform, kIsWeb, TargetPlatform;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:sqlite3_flutter_libs/sqlite3_flutter_libs.dart';
+import 'package:sqlite3_flutter_libs/sqlite3_flutter_libs.dart'
+    if (dart.library.html) 'stubs/sqlite3_web_stub.dart';
 
 import 'app.dart';
 import 'utils/error_suppression.dart';

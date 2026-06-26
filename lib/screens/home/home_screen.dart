@@ -63,19 +63,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
         title: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Container(
-              width: 32,
-              height: 32,
-              decoration: BoxDecoration(
-                color: theme.colorScheme.primaryContainer,
-                borderRadius: BorderRadius.circular(8),
-              ),
-              alignment: Alignment.center,
-              child: const Text(
-                '\u{1F3D3}', // pickleball paddle emoji
-                style: TextStyle(fontSize: 18),
-              ),
-            ),
+            _AppLogo(theme: theme),
             const SizedBox(width: 10),
             const Text('PickleTrack'),
           ],
@@ -700,4 +688,75 @@ class _CompletedMatchCard extends StatelessWidget {
   }
 
   String _formatScoreSummary(String json) => formatScoreSummary(json);
+}
+
+// ── App Logo ──
+
+class _AppLogo extends StatelessWidget {
+  final ThemeData theme;
+  const _AppLogo({required this.theme});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: 32,
+      height: 32,
+      decoration: BoxDecoration(
+        color: theme.colorScheme.primaryContainer,
+        borderRadius: BorderRadius.circular(8),
+      ),
+      alignment: Alignment.center,
+      child: CustomPaint(
+        size: const Size(20, 20),
+        painter: _PaddleIconPainter(
+          color: theme.colorScheme.primary,
+        ),
+      ),
+    );
+  }
+}
+
+/// Minimal geometric pickleball paddle icon — a clean circle head
+/// with a short handle, evoking a paddle in profile.
+class _PaddleIconPainter extends CustomPainter {
+  final Color color;
+  const _PaddleIconPainter({required this.color});
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final paint = Paint()
+      ..color = color
+      ..style = PaintingStyle.fill;
+
+    // Paddle head — rounded rectangle
+    final headRect = RRect.fromRectAndCorners(
+      Rect.fromLTWH(2, 0, size.width - 4, size.height * 0.72),
+      topLeft: const Radius.circular(4),
+      topRight: const Radius.circular(4),
+      bottomLeft: const Radius.circular(2),
+      bottomRight: const Radius.circular(2),
+    );
+    canvas.drawRRect(headRect, paint);
+
+    // Handle — thin rect at bottom center
+    final handlePaint = Paint()
+      ..color = color
+      ..style = PaintingStyle.fill;
+    canvas.drawRRect(
+      RRect.fromRectAndRadius(
+        Rect.fromLTWH(
+          size.width * 0.32,
+          size.height * 0.70,
+          size.width * 0.36,
+          size.height * 0.30,
+        ),
+        const Radius.circular(2),
+      ),
+      handlePaint,
+    );
+  }
+
+  @override
+  bool shouldRepaint(covariant _PaddleIconPainter oldDelegate) =>
+      color != oldDelegate.color;
 }
