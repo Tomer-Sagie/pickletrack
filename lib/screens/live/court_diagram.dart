@@ -15,13 +15,12 @@ class PlayerPosition {
   });
 }
 
-/// Vertical pickleball court diagram with clean player markers.
+/// Vertical pickleball court diagram — redesigned with gradients,
+/// 3D player markers, proper net with posts, and modern color hierarchy.
 ///
-/// The court is drawn top-to-bottom: Team A at the top, Team B at the
-/// bottom, net running horizontally through the center.
-///
-/// Uses nested CustomPaint with a SizedBox.expand() fill child instead
-/// of LayoutBuilder+Stack to avoid layout-cycle-prone patterns.
+/// Single CustomPainter approach: one paint pass draws everything
+/// (court surface + player markers) to avoid layout-cycle-prone
+/// Stack/LayoutBuilder patterns.
 class CourtDiagram extends StatelessWidget {
   final List<PlayerPosition> players;
   final String? servingPlayerId;
@@ -40,139 +39,272 @@ class CourtDiagram extends StatelessWidget {
     return SizedBox(
       height: 240,
       child: CustomPaint(
-        painter: _CourtSurfacePainter(
+        painter: _CourtPainter(
+          players: players,
+          servingPlayerId: servingPlayerId,
           isDoubles: isDoubles,
           brightness: brightness,
         ),
-        child: CustomPaint(
-          painter: _PlayerPositionPainter(
-            players: players,
-            servingPlayerId: servingPlayerId,
-            isDoubles: isDoubles,
-            brightness: brightness,
-          ),
-          child: const SizedBox.expand(),
-        ),
+        child: const SizedBox.expand(),
       ),
     );
   }
 }
 
-// ── Layer 1: Static Court Surface ──
+// ── Single unified painter ──
 
-class _CourtSurfacePainter extends CustomPainter {
+class _CourtPainter extends CustomPainter {
+  final List<PlayerPosition> players;
+  final String? servingPlayerId;
   final bool isDoubles;
   final Brightness brightness;
 
-  const _CourtSurfacePainter({this.isDoubles = true, required this.brightness});
+  const _CourtPainter({
+    required this.players,
+    this.servingPlayerId,
+    required this.isDoubles,
+    required this.brightness,
+  });
 
   @override
   void paint(Canvas canvas, Size size) {
     final m = _Metrics(size, isDoubles: isDoubles);
     final c = _CourtColors.of(brightness);
 
-    // Outer background
-    canvas.drawRRect(m.bgRect, Paint()..color = c.surround);
+    _drawSurround(canvas, m, c);
+    _drawSurface(canvas, m, c);
+    _drawKitchenZones(canvas, m, c);
+    _drawCourtLines(canvas, m, c);
+    _drawNet(canvas, m, c);
+    _drawTeamLabels(canvas, m, c);
+    _drawPlayers(canvas, m, c);
+  }
 
-    // Playing surface
-    canvas.drawRRect(m.surfaceRect, Paint()..color = c.surface);
+  // ── Court surround (blue area around the playing surface) ──
 
-    // Kitchen tint
+  void _drawSurround(Canvas canvas, _Metrics m, _CourtColors c) {
+    final paint = Paint()
+      ..shader = LinearGradient(
+        begin: Alignment.topCenter,
+        end: Alignment.bottomCenter,
+        colors: [c.surroundTop, c.surroundBottom],
+      ).createShader(m.bgRect.outerRect);
+    canvas.drawRRect(m.bgRect, paint);
+  }
+
+  // ── Playing surface (green court) ──
+
+  void _drawSurface(Canvas canvas, _Metrics m, _CourtColors c) {
+    // Subtle shadow under the surface for depth
+    final shadowPaint = Paint()
+      ..color = const Color(0x33000000)
+      ..maskFilter = const MaskFilter.blur(BlurStyle.outer, 4);
+    canvas.drawRRect(m.surfaceRect, shadowPaint);
+
+    // Gradient green surface
+    final paint = Paint()
+      ..shader = LinearGradient(
+        begin: Alignment.topCenter,
+        end: Alignment.bottomCenter,
+        colors: [c.surfaceTop, c.surfaceBottom],
+      ).createShader(m.surfaceRect.outerRect);
+    canvas.drawRRect(m.surfaceRect, paint);
+  }
+
+  // ── Kitchen zones (non-volley area) ──
+
+  void _drawKitchenZones(Canvas canvas, _Metrics m, _CourtColors c) {
     final kitchenPaint = Paint()..color = c.kitchenTint;
     canvas.drawRect(m.kitchenTopRect, kitchenPaint);
     canvas.drawRect(m.kitchenBottomRect, kitchenPaint);
+  }
 
-    // Court lines
+  // ── Court lines (baselines, sidelines, kitchen lines) ──
+
+  void _drawCourtLines(Canvas canvas, _Metrics m, _CourtColors c) {
+    final sr = m.surfaceRect.outerRect;
+
+    // Outer court lines (sidelines + baselines)
     final linePaint = Paint()
       ..color = c.courtLine
       ..strokeWidth = 1.5
-      ..style = PaintingStyle.stroke;
-
-    final sr = m.surfaceRect.outerRect;
-
-    // Sidelines
-    canvas.drawLine(sr.topLeft, sr.bottomLeft, linePaint);
-    canvas.drawLine(sr.topRight, sr.bottomRight, linePaint);
-
-    // Baselines
+      ..style = PaintingStyle.stroke
+      ..strokeCap = StrokeCap.round;
     canvas.drawLine(sr.topLeft, sr.topRight, linePaint);
     canvas.drawLine(sr.bottomLeft, sr.bottomRight, linePaint);
+    canvas.drawLine(sr.topLeft, sr.bottomLeft, linePaint);
+    canvas.drawLine(sr.topRight, sr.bottomRight, linePaint);
 
     // Kitchen lines
     final kitchenLinePaint = Paint()
       ..color = c.kitchenLine
       ..strokeWidth = 1.5
-      ..style = PaintingStyle.stroke;
-    canvas.drawLine(m.kitchenTopLeft, m.kitchenTopRight, kitchenLinePaint);
+      ..style = PaintingStyle.stroke
+      ..strokeCap = StrokeCap.round;
     canvas.drawLine(
-        m.kitchenBottomLeft, m.kitchenBottomRight, kitchenLinePaint);
+        Offset(sr.left, m.kitchenTopY), Offset(sr.right, m.kitchenTopY), kitchenLinePaint);
+    canvas.drawLine(
+        Offset(sr.left, m.kitchenBottomY), Offset(sr.right, m.kitchenBottomY), kitchenLinePaint);
 
-    // Net
-    final netPaint = Paint()
-      ..color = c.net
-      ..strokeWidth = 3
-      ..style = PaintingStyle.stroke;
-    canvas.drawLine(m.netLeft, m.netRight, netPaint);
-
-    // Center line (doubles only)
+    // Center service line (doubles only)
     if (isDoubles) {
       final centerPaint = Paint()
         ..color = c.centerLine
         ..strokeWidth = 1
         ..style = PaintingStyle.stroke;
-      final cx = m.surfaceRect.center.dx;
-      canvas.drawLine(
-        Offset(cx, m.surfaceRect.top),
-        Offset(cx, m.kitchenTopRect.bottom),
-        centerPaint,
-      );
-      canvas.drawLine(
-        Offset(cx, m.kitchenBottomRect.top),
-        Offset(cx, m.surfaceRect.bottom),
-        centerPaint,
-      );
+      final cx = sr.center.dx;
+      canvas.drawLine(Offset(cx, sr.top), Offset(cx, m.kitchenTopY), centerPaint);
+      canvas.drawLine(Offset(cx, m.kitchenBottomY), Offset(cx, sr.bottom), centerPaint);
     }
-
-    // Team labels — positioned INSIDE the surface with clear padding
-    _label(canvas, 'TEAM A', m.teamALabelPos, 10, c.teamLabel);
-    _label(canvas, 'TEAM B', m.teamBLabelPos, 10, c.teamLabel);
   }
 
-  void _label(
-      Canvas canvas, String text, Offset pos, double size, Color color) {
+  // ── Net with posts ──
+
+  void _drawNet(Canvas canvas, _Metrics m, _CourtColors c) {
+    final sr = m.surfaceRect.outerRect;
+    final netY = sr.center.dy;
+
+    // Net posts (small rectangles at each sideline)
+    final postPaint = Paint()..color = c.netPost;
+    const postW = 4.0;
+    const postH = 12.0;
+    canvas.drawRRect(
+      RRect.fromRectAndRadius(
+        Rect.fromCenter(center: Offset(sr.left, netY), width: postW, height: postH),
+        const Radius.circular(2),
+      ),
+      postPaint,
+    );
+    canvas.drawRRect(
+      RRect.fromRectAndRadius(
+        Rect.fromCenter(center: Offset(sr.right, netY), width: postW, height: postH),
+        const Radius.circular(2),
+      ),
+      postPaint,
+    );
+
+    // Net top band (thick solid line)
+    final netPaint = Paint()
+      ..color = c.net
+      ..strokeWidth = 3
+      ..style = PaintingStyle.stroke
+      ..strokeCap = StrokeCap.round;
+    canvas.drawLine(Offset(sr.left, netY), Offset(sr.right, netY), netPaint);
+  }
+
+  // ── Team labels ──
+
+  void _drawTeamLabels(Canvas canvas, _Metrics m, _CourtColors c) {
+    _label(canvas, 'TEAM A', m.teamALabelPos, 9, c.teamLabel);
+    _label(canvas, 'TEAM B', m.teamBLabelPos, 9, c.teamLabel);
+  }
+
+  void _label(Canvas canvas, String text, Offset pos, double size, Color color) {
     final tp = TextPainter(
       text: TextSpan(
-          text: text,
-          style: TextStyle(
-              color: color,
-              fontSize: size,
-              fontWeight: FontWeight.w600,
-              letterSpacing: 0.8)),
+        text: text,
+        style: TextStyle(
+          color: color,
+          fontSize: size,
+          fontWeight: FontWeight.w700,
+          letterSpacing: 1.2,
+        ),
+      ),
       textDirection: TextDirection.ltr,
     )..layout();
     tp.paint(canvas, Offset(pos.dx - tp.width / 2, pos.dy - tp.height / 2));
   }
 
-  @override
-  bool shouldRepaint(_CourtSurfacePainter oldDelegate) =>
-      isDoubles != oldDelegate.isDoubles ||
-      brightness != oldDelegate.brightness;
-}
+  // ── Player markers (3D dots with shadows, gradients, initials) ──
 
-// ── Layer 2: Player Dots ──
+  void _drawPlayers(Canvas canvas, _Metrics m, _CourtColors c) {
+    for (final player in players) {
+      final isServer = player.id == servingPlayerId;
+      final pos = m.playerDot(player.team, player.side);
+      const radius = 15.0;
 
-class _PlayerPositionPainter extends CustomPainter {
-  final List<PlayerPosition> players;
-  final String? servingPlayerId;
-  final bool isDoubles;
-  final Brightness brightness;
+      // Drop shadow (simple offset circle — no MaskFilter for performance)
+      canvas.drawCircle(
+        pos + const Offset(0, 2),
+        radius,
+        Paint()..color = const Color(0x33000000),
+      );
 
-  const _PlayerPositionPainter({
-    required this.players,
-    this.servingPlayerId,
-    this.isDoubles = true,
-    required this.brightness,
-  });
+      // Server ring (behind dot, primary color)
+      if (isServer) {
+        canvas.drawCircle(
+          pos,
+          radius + 5,
+          Paint()
+            ..color = c.serverRing
+            ..style = PaintingStyle.stroke
+            ..strokeWidth = 2.5,
+        );
+      }
+
+      // Dot with radial gradient (3D ball effect)
+      final dotColor = isServer ? c.serverDot : c.playerDot;
+      final dotLight = isServer ? c.serverDotLight : c.playerDotLight;
+      final dotPaint = Paint()
+        ..shader = RadialGradient(
+          center: const Alignment(-0.3, -0.3),
+          radius: 0.9,
+          colors: [dotLight, dotColor],
+        ).createShader(Rect.fromCircle(center: pos, radius: radius));
+      canvas.drawCircle(pos, radius, dotPaint);
+
+      // Subtle white border for definition
+      canvas.drawCircle(
+        pos,
+        radius,
+        Paint()
+          ..color = const Color(0x30FFFFFF)
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 1,
+      );
+
+      // Initials inside the dot
+      final initials = _initials(player.name);
+      final initialsTp = TextPainter(
+        text: TextSpan(
+          text: initials,
+          style: TextStyle(
+            color: c.initialsText,
+            fontSize: 11,
+            fontWeight: FontWeight.w800,
+          ),
+        ),
+        textDirection: TextDirection.ltr,
+      )..layout();
+      initialsTp.paint(
+        canvas,
+        Offset(pos.dx - initialsTp.width / 2, pos.dy - initialsTp.height / 2),
+      );
+
+      // Name below dot (with shadow for readability)
+      final displayName = player.name.length > 10
+          ? '${player.name.substring(0, 9)}\u2026'
+          : player.name;
+      final nameTp = TextPainter(
+        text: TextSpan(
+          text: displayName,
+          style: TextStyle(
+            color: c.nameLabel,
+            fontSize: 10,
+            fontWeight: isServer ? FontWeight.w700 : FontWeight.w600,
+            shadows: const [
+              Shadow(color: Color(0x80000000), blurRadius: 3, offset: Offset(0, 1)),
+            ],
+          ),
+        ),
+        textDirection: TextDirection.ltr,
+      )..layout(maxWidth: 80);
+      nameTp.paint(
+        canvas,
+        Offset(pos.dx - nameTp.width / 2, pos.dy + radius + 4),
+      );
+    }
+  }
 
   String _initials(String name) {
     final parts = name.trim().split(RegExp(r'\s+'));
@@ -183,87 +315,15 @@ class _PlayerPositionPainter extends CustomPainter {
   }
 
   @override
-  void paint(Canvas canvas, Size size) {
-    final m = _Metrics(size, isDoubles: isDoubles);
-    final c = _CourtColors.of(brightness);
-
-    for (final player in players) {
-      final isServer = player.id == servingPlayerId;
-      final pos = m.playerDot(player.team, player.side);
-      final initials = _initials(player.name);
-
-      // ── Player circle ──
-      final dotColor = isServer ? c.serverDot : c.playerDot;
-      canvas.drawCircle(pos, 12, Paint()..color = dotColor);
-
-      // ── Server ring: white outline for maximum contrast on any surface ──
-      if (isServer) {
-        canvas.drawCircle(
-          pos,
-          18,
-          Paint()
-            ..color = c.serverRing
-            ..style = PaintingStyle.stroke
-            ..strokeWidth = 3,
-        );
-      }
-
-      // ── Initials inside the circle ──
-      final initialsTp = TextPainter(
-        text: TextSpan(
-          text: initials,
-          style: TextStyle(
-            color: c.initialsText,
-            fontSize: 10,
-            fontWeight: FontWeight.w700,
-          ),
-        ),
-        textDirection: TextDirection.ltr,
-      )..layout();
-      initialsTp.paint(
-        canvas,
-        Offset(pos.dx - initialsTp.width / 2,
-            pos.dy - initialsTp.height / 2),
-      );
-
-      // ── Name below dot (clean, no heavy pill) ──
-      final displayName = player.name.length > 10
-          ? '${player.name.substring(0, 9)}\u2026'
-          : player.name;
-      final nameTp = TextPainter(
-        text: TextSpan(
-          text: displayName,
-          style: TextStyle(
-            color: c.nameLabel,
-            fontSize: 9,
-            fontWeight: isServer ? FontWeight.w700 : FontWeight.w500,
-            // Subtle shadow for readability on green surface
-            shadows: const [
-              Shadow(
-                  color: Color(0x60000000),
-                  blurRadius: 2,
-                  offset: Offset(0, 1)),
-            ],
-          ),
-        ),
-        textDirection: TextDirection.ltr,
-      )..layout(maxWidth: 72);
-      nameTp.paint(
-        canvas,
-        Offset(pos.dx - nameTp.width / 2, pos.dy + 18),
-      );
-    }
-  }
-
-  @override
-  bool shouldRepaint(_PlayerPositionPainter oldDelegate) {
+  bool shouldRepaint(_CourtPainter oldDelegate) {
     if (brightness != oldDelegate.brightness) return true;
     if (isDoubles != oldDelegate.isDoubles) return true;
     if (players.length != oldDelegate.players.length) return true;
     if (servingPlayerId != oldDelegate.servingPlayerId) return true;
     for (var i = 0; i < players.length; i++) {
       if (players[i].id != oldDelegate.players[i].id ||
-          players[i].side != oldDelegate.players[i].side) {
+          players[i].side != oldDelegate.players[i].side ||
+          players[i].name != oldDelegate.players[i].name) {
         return true;
       }
     }
@@ -279,110 +339,112 @@ class _Metrics {
 
   _Metrics(this.size, {required this.isDoubles});
 
-  // ── Background ──
-  static const _insetX = 12.0;
-  static const _padY = 12.0;
+  static const _insetX = 10.0;
+  static const _padY = 10.0;
   static const _surfaceInset = 5.0;
+  static const _labelPad = 14.0;
 
   RRect get bgRect => RRect.fromRectAndRadius(
         Rect.fromLTWH(
-            _insetX, _padY, size.width - _insetX * 2, size.height - _padY * 2),
-        const Radius.circular(6),
+          _insetX, _padY,
+          size.width - _insetX * 2,
+          size.height - _padY * 2,
+        ),
+        const Radius.circular(10),
       );
 
-  // ── Playing surface ──
   RRect get surfaceRect => RRect.fromRectAndRadius(
         Rect.fromLTWH(
           _insetX + _surfaceInset,
-          _padY + _surfaceInset + 12, // extra top padding for label
+          _padY + _surfaceInset + _labelPad,
           size.width - (_insetX + _surfaceInset) * 2,
-          size.height - (_padY + _surfaceInset) * 2 - 24, // room for both labels
+          size.height - (_padY + _surfaceInset) * 2 - _labelPad * 2,
         ),
-        const Radius.circular(4),
+        const Radius.circular(6),
       );
 
-  // ── Net ──
-  Offset get netLeft => Offset(surfaceRect.left, surfaceRect.center.dy);
-  Offset get netRight => Offset(surfaceRect.right, surfaceRect.center.dy);
-
-  // ── Kitchen ──
   double get _halfHeight => surfaceRect.height / 2;
   double get _kitchenOffset => _halfHeight * 0.30;
 
+  double get kitchenTopY => surfaceRect.center.dy - _kitchenOffset;
+  double get kitchenBottomY => surfaceRect.center.dy + _kitchenOffset;
+
   Rect get kitchenTopRect => Rect.fromLTRB(
-        surfaceRect.left,
-        surfaceRect.center.dy - _kitchenOffset,
-        surfaceRect.right,
-        surfaceRect.center.dy,
-      );
+        surfaceRect.left, kitchenTopY, surfaceRect.right, surfaceRect.center.dy);
 
   Rect get kitchenBottomRect => Rect.fromLTRB(
-        surfaceRect.left,
-        surfaceRect.center.dy,
-        surfaceRect.right,
-        surfaceRect.center.dy + _kitchenOffset,
-      );
+        surfaceRect.left, surfaceRect.center.dy, surfaceRect.right, kitchenBottomY);
 
-  Offset get kitchenTopLeft => Offset(surfaceRect.left, kitchenTopRect.top);
-  Offset get kitchenTopRight =>
-      Offset(surfaceRect.right, kitchenTopRect.top);
-  Offset get kitchenBottomLeft =>
-      Offset(surfaceRect.left, kitchenBottomRect.bottom);
-  Offset get kitchenBottomRight =>
-      Offset(surfaceRect.right, kitchenBottomRect.bottom);
-
-  // ── Player dot positions ──
   Offset playerDot(String team, String side) {
     final double x;
     if (isDoubles) {
       final q = surfaceRect.width / 4;
-      x = side == 'left'
-          ? surfaceRect.left + q
-          : surfaceRect.right - q;
+      x = side == 'left' ? surfaceRect.left + q : surfaceRect.right - q;
     } else {
       x = surfaceRect.center.dx;
     }
-    final topBoxCenter = (surfaceRect.top + kitchenTopRect.top) / 2;
-    final bottomBoxCenter =
-        (surfaceRect.bottom + kitchenBottomRect.bottom) / 2;
-    return Offset(x, team == 'A' ? topBoxCenter : bottomBoxCenter);
+    final topCenter = (surfaceRect.top + kitchenTopY) / 2;
+    final bottomCenter = (surfaceRect.bottom + kitchenBottomY) / 2;
+    return Offset(x, team == 'A' ? topCenter : bottomCenter);
   }
 
-  // ── Team labels (inside the surface, padded from edges) ──
-  Offset get teamALabelPos => Offset(
-      surfaceRect.center.dx, surfaceRect.top - 16);
-  Offset get teamBLabelPos => Offset(
-      surfaceRect.center.dx, surfaceRect.bottom + 16);
+  Offset get teamALabelPos =>
+      Offset(surfaceRect.center.dx, surfaceRect.top - _labelPad / 2 - 2);
+  Offset get teamBLabelPos =>
+      Offset(surfaceRect.center.dx, surfaceRect.bottom + _labelPad / 2 + 2);
 }
 
 // ── Theme-aware Court Colors ──
 
 class _CourtColors {
-  final Color surround;
-  final Color surface;
+  // Surround (blue area)
+  final Color surroundTop;
+  final Color surroundBottom;
+
+  // Surface (green court)
+  final Color surfaceTop;
+  final Color surfaceBottom;
+
+  // Kitchen
   final Color kitchenTint;
   final Color kitchenLine;
+
+  // Lines
   final Color courtLine;
   final Color centerLine;
+
+  // Net
   final Color net;
+  final Color netPost;
+
+  // Labels
   final Color teamLabel;
+
+  // Player dots
   final Color playerDot;
+  final Color playerDotLight;
   final Color serverDot;
+  final Color serverDotLight;
   final Color serverRing;
   final Color initialsText;
   final Color nameLabel;
 
   const _CourtColors._({
-    required this.surround,
-    required this.surface,
+    required this.surroundTop,
+    required this.surroundBottom,
+    required this.surfaceTop,
+    required this.surfaceBottom,
     required this.kitchenTint,
     required this.kitchenLine,
     required this.courtLine,
     required this.centerLine,
     required this.net,
+    required this.netPost,
     required this.teamLabel,
     required this.playerDot,
+    required this.playerDotLight,
     required this.serverDot,
+    required this.serverDotLight,
     required this.serverRing,
     required this.initialsText,
     required this.nameLabel,
@@ -392,33 +454,53 @@ class _CourtColors {
     return brightness == Brightness.dark ? _dark : _light;
   }
 
+  // ── Light mode ──
   static const _light = _CourtColors._(
-    surround: Color(0xFF2B5797),
-    surface: Color(0xFF4A8C3F),
-    kitchenTint: Color(0x148B4513),
-    kitchenLine: Color(0xFF8B4513),
+    // Blue surround: lighter top → deeper bottom
+    surroundTop: Color(0xFF3268AC),
+    surroundBottom: Color(0xFF1E4078),
+    // Green surface: vibrant top → deeper bottom
+    surfaceTop: Color(0xFF5AA04D),
+    surfaceBottom: Color(0xFF3D7535),
+    // Kitchen: subtle darker green
+    kitchenTint: Color(0x22335522),
+    kitchenLine: Color(0xBFFFFFFF),
+    // Court lines: white
     courtLine: Color(0xCCFFFFFF),
     centerLine: Color(0x73FFFFFF),
-    net: Color(0xFF444444),
+    // Net
+    net: Color(0xFF2A2A2A),
+    netPost: Color(0xFF1A1A1A),
+    // Team labels
     teamLabel: Color(0xB3FFFFFF),
-    playerDot: Color(0xD9FFFFFF),
+    // Player dots: white with gradient
+    playerDot: Color(0xE6FFFFFF),
+    playerDotLight: Color(0xFFFFFFFF),
+    // Server dot: primary (lime)
     serverDot: Color(0xFFC8E030),
+    serverDotLight: Color(0xFFEBFF80),
     serverRing: Color(0xFFFFFFFF),
     initialsText: Color(0xFF1A2800),
-    nameLabel: Color(0xE6FFFFFF),
+    nameLabel: Color(0xF2FFFFFF),
   );
 
+  // ── Dark mode ──
   static const _dark = _CourtColors._(
-    surround: Color(0xFF1A3058),
-    surface: Color(0xFF2A4F22),
-    kitchenTint: Color(0x1F5C2E0A),
-    kitchenLine: Color(0xFF5C2E0A),
-    courtLine: Color(0x8CFFFFFF),
+    surroundTop: Color(0xFF1E3A6B),
+    surroundBottom: Color(0xFF0F1F42),
+    surfaceTop: Color(0xFF3A6B32),
+    surfaceBottom: Color(0xFF1E4A1A),
+    kitchenTint: Color(0x221A3010),
+    kitchenLine: Color(0x99FFFFFF),
+    courtLine: Color(0x99FFFFFF),
     centerLine: Color(0x59FFFFFF),
-    net: Color(0xFF5A5A5A),
+    net: Color(0xFF444444),
+    netPost: Color(0xFF333333),
     teamLabel: Color(0x8CFFFFFF),
-    playerDot: Color(0xD9FFFFFF),
+    playerDot: Color(0xCCFFFFFF),
+    playerDotLight: Color(0xE6FFFFFF),
     serverDot: Color(0xFFC8E030),
+    serverDotLight: Color(0xFFEBFF80),
     serverRing: Color(0xFFFFFFFF),
     initialsText: Color(0xFF1A2800),
     nameLabel: Color(0xCCFFFFFF),
