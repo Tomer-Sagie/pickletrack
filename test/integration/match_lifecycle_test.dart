@@ -30,7 +30,15 @@ void main() {
       await db.setSetting('has_seen_onboarding', 'true');
       await db.setSetting('has_seen_tutorial', 'true');
 
-      tester.view.physicalSize = const Size(1080, 2400);
+      // Viewport bumped from 1080→1200 wide. With the MatchDetailsScreen
+      // AppBar hosting both an IconButton (Home) and a PopupMenuButton
+      // (Share), the trailing action area's icon centers can land ~5px
+      // past the right edge of a 1080-wide canvas — which silently
+      // drops the tap and stalls `pumpUntilFound(HomeScreen)` for 5s.
+      // 1200 gives the actions row enough slack on every device pixel
+      // ratio we test at, while still matching the Android phone size
+      // class the screen is designed for.
+      tester.view.physicalSize = const Size(1200, 2400);
       tester.view.devicePixelRatio = 1.0;
       addTearDown(() {
         tester.view.resetPhysicalSize();
@@ -228,7 +236,12 @@ void main() {
         expect(find.text('Player B1'), findsAtLeastNWidgets(1));
 
         // Go home via the explicit home shortcut in the AppBar.
-        await tester.tap(find.byIcon(Icons.home_rounded));
+        // Tooltip-based finder (tooltip: 'Home' on the IconButton) so
+        // the lookup is layout-independent — symbol/icon codepoint
+        // mapping can drift across Flutter SDK versions, and a tight
+        // warnIfMissed area on the AppBar's trailing actions can still
+        // throw tap() off-screen warnings even after viewport widening.
+        await tester.tap(find.byTooltip('Home'));
         await pumpUntilFound(tester, find.byType(HomeScreen));
 
         // -- Home Screen --
@@ -260,7 +273,11 @@ void main() {
           ],
         );
 
-        tester.view.physicalSize = const Size(1080, 2400);
+        // Same viewport bump (1080→1200) as the helper above; required
+        // for the same reason: AppBar trailing actions in this app
+        // overflow 1080-wide canvases when a PopupMenuButton shares
+        // the row with an IconButton.
+        tester.view.physicalSize = const Size(1200, 2400);
         tester.view.devicePixelRatio = 1.0;
         addTearDown(() {
           tester.view.resetPhysicalSize();
