@@ -13,6 +13,7 @@ import 'app.dart';
 import 'database/database.dart';
 import 'services/crash_reporting_service.dart';
 import 'utils/error_suppression.dart';
+import 'widgets/error_boundary.dart';
 
 /// Queued crash entries captured before the app (and therefore the DB)
 /// is initialized. [PickleTrackApp] flushes these on first frame.
@@ -131,6 +132,10 @@ Future<void> main() async {
       return true;
     };
   }
+
+  // Replace the default red error screen with a production recovery UI.
+  // On render errors, users see a "Go Home" button instead of a crash.
+  ErrorWidget.builder = (details) => ErrorBoundaryWidget(details: details);
 
   // Quiet down the cosmetic `MissingPluginException` log on platforms
   // where the bundled plugins don't have a host implementation (e.g.

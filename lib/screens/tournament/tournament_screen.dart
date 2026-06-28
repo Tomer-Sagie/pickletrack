@@ -8,6 +8,7 @@ import '../../providers/tournament_provider.dart';
 import '../../services/tournament_service.dart';
 import '../../theme/colors.dart';
 import '../../widgets/confirm_dialog.dart';
+import '../../widgets/shimmer.dart';
 import 'bracket_widget.dart';
 
 class TournamentScreen extends ConsumerStatefulWidget {
@@ -30,13 +31,18 @@ class _TournamentScreenState extends ConsumerState<TournamentScreen> {
   }
 
   Future<void> _loadTournament() async {
-    if (mounted) setState(() { _isLoading = true; _hasError = false; });
+    // Only show full-screen loading on initial load, not during
+    // pull-to-refresh, so the RefreshIndicator spinner stays visible
+    // and the bracket doesn't flash-replace with a shimmer skeleton.
+    if (!mounted) return;
+    final isInitial = _isLoading;
+    if (isInitial) setState(() { _isLoading = true; _hasError = false; });
     try {
       await ref.read(tournamentNotifierProvider(widget.tournamentId).notifier).load();
     } catch (e) {
       if (mounted) setState(() => _hasError = true);
     } finally {
-      if (mounted) setState(() => _isLoading = false);
+      if (mounted && isInitial) setState(() => _isLoading = false);
     }
   }
 
@@ -66,7 +72,7 @@ class _TournamentScreenState extends ConsumerState<TournamentScreen> {
 
   Widget _buildBodyWithErrorHandling(ThemeData theme) {
     if (_isLoading) {
-      return const Center(child: CircularProgressIndicator());
+      return const ShimmerTournament();
     }
     if (_hasError) {
       return Center(
@@ -136,12 +142,16 @@ class _TournamentScreenState extends ConsumerState<TournamentScreen> {
 
         // ── Bracket ──
         Expanded(
-          child: SingleChildScrollView(
-            padding: const EdgeInsets.fromLTRB(12, 8, 12, 40),
-            child: BracketWidget(
-              bracket: bracket,
-              onMatchTap: (match) => _onMatchTap(tournament, match),
-              activeMatchId: null,
+          child: RefreshIndicator(
+            onRefresh: _loadTournament,
+            child: SingleChildScrollView(
+              physics: const AlwaysScrollableScrollPhysics(),
+              padding: const EdgeInsets.fromLTRB(12, 8, 12, 40),
+              child: BracketWidget(
+                bracket: bracket,
+                onMatchTap: (match) => _onMatchTap(tournament, match),
+                activeMatchId: null,
+              ),
             ),
           ),
         ),
@@ -327,6 +337,9 @@ class _TournamentScreenState extends ConsumerState<TournamentScreen> {
     final playerB = match.playerBName!;
 
     // Build player list respecting singles vs doubles.
+    // For doubles: partner names default to '' so players can fill them
+    // in on the live match screen. Real tournament apps show actual
+    // player names, not fake placeholders like "Partner".
     final players = <({String name, String team, bool isStartingServer, String? position})>[
       (
         name: playerA,
@@ -336,7 +349,7 @@ class _TournamentScreenState extends ConsumerState<TournamentScreen> {
       ),
       if (isDoubles)
         (
-          name: '$playerA Partner',
+          name: '',
           team: 'A',
           isStartingServer: false,
           position: 'left',
@@ -349,7 +362,7 @@ class _TournamentScreenState extends ConsumerState<TournamentScreen> {
       ),
       if (isDoubles)
         (
-          name: '$playerB Partner',
+          name: '',
           team: 'B',
           isStartingServer: false,
           position: 'left',

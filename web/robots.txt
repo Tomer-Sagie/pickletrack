@@ -1,0 +1,3 @@
+# Allow all crawlers — PickleTrack is a public web app
+User-agent: *
+Allow: /

@@ -11,6 +11,7 @@ import 'package:pickletrack/providers/database_provider.dart';
 import 'package:pickletrack/providers/theme_provider.dart';
 import 'package:pickletrack/providers/tournament_provider.dart';
 import 'package:pickletrack/screens/home/home_screen.dart';
+import 'package:pickletrack/widgets/shimmer.dart';
 
 import 'helpers/stubs.dart';
 
@@ -85,7 +86,7 @@ void main() {
       await pumpHomeScreen(tester);
 
       // Header uses Unicode right single quotation mark (\u2019).
-      expect(find.text("Let\u2019s play."), findsOneWidget);
+      expect(find.text('Let\u2019s play.'), findsOneWidget);
       expect(find.textContaining('Track your pickleball matches'), findsOneWidget);
     });
 
@@ -155,7 +156,7 @@ void main() {
       );
       // After the initial frame, the completed-matches provider is still
       // loading because the completer hasn't been resolved.
-      expect(find.byType(CircularProgressIndicator), findsOneWidget);
+      expect(find.byType(ShimmerMatchHistory), findsOneWidget);
     });
 
     testWidgets('shows completed matches section when history exists', (tester) async {

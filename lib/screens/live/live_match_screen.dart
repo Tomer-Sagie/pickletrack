@@ -12,6 +12,7 @@ import '../../services/scoring_service.dart';
 import '../../services/sound_service.dart';
 import '../../theme/colors.dart';
 import '../../widgets/confirm_dialog.dart';
+import '../../widgets/shimmer.dart';
 import 'court_diagram.dart';
 import 'tutorial_overlay.dart';
 
@@ -405,7 +406,7 @@ class _LiveMatchScreenState extends ConsumerState<LiveMatchScreen> {
     if (_loading) {
       return Scaffold(
           appBar: AppBar(title: const Text('Live Match')),
-          body: const Center(child: CircularProgressIndicator()));
+          body: const ShimmerMatchDetails());
     }
     if (_loadError != null) {
       return Scaffold(

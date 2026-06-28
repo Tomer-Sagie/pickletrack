@@ -41,6 +41,12 @@ jobs:
       - name: Get dependencies
         run: flutter pub get
 
+      - name: Analyze Dart code
+        run: dart analyze lib/
+
+      - name: Run tests
+        run: flutter test
+
       - name: Build release APK
         run: flutter build apk --release
 
@@ -85,8 +91,14 @@ jobs:
       - name: Get dependencies
         run: flutter pub get
 
+      - name: Analyze Dart code
+        run: dart analyze lib/
+
+      - name: Run tests
+        run: flutter test
+
       - name: Build web release
-        run: flutter build web --release --base-href /pickletrack/
+        run: flutter build web --base-href /pickletrack/
 
       - name: Setup Pages
         uses: actions/configure-pages@v4

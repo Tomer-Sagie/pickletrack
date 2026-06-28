@@ -82,8 +82,28 @@ class _PickleTrackAppState extends ConsumerState<PickleTrackApp> {
             },
           );
         }
-        return child ?? const SizedBox.shrink();
+        // Constrain content to phone-like width on tablets/desktop so
+        // the UI never stretches full-width on large screens.
+        return _AdaptiveShell(child: child ?? const SizedBox.shrink());
       },
+    );
+  }
+}
+
+/// Wraps app content in a centered, phone-width column on tablets/desktop
+/// so the UI never stretches to fill a 27" monitor.  On phones the
+/// ConstrainedBox is transparent (screen is already narrower than 600).
+class _AdaptiveShell extends StatelessWidget {
+  final Widget child;
+  const _AdaptiveShell({required this.child});
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 600),
+        child: child,
+      ),
     );
   }
 }

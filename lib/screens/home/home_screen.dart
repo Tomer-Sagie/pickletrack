@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
@@ -14,6 +16,7 @@ import '../../theme/colors.dart';
 import '../../utils/match_helpers.dart';
 import '../../widgets/confirm_dialog.dart';
 import '../../widgets/empty_state.dart';
+import '../../widgets/shimmer.dart';
 import 'resume_banner.dart';
 
 class HomeScreen extends ConsumerStatefulWidget {
@@ -24,21 +27,10 @@ class HomeScreen extends ConsumerStatefulWidget {
 }
 
 class _HomeScreenState extends ConsumerState<HomeScreen> {
-  final _searchController = TextEditingController();
-  String _searchQuery = '';
-  final Set<int> _deletedMatchIds = {};
-
-  @override
-  void dispose() {
-    _searchController.dispose();
-    super.dispose();
-  }
-
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final activeMatch = ref.watch(activeMatchProvider);
-    final completedMatches = ref.watch(completedMatchesProvider);
 
     // Read the user's configured defaults so the Standard Start card
     // subtitle is always honest about what tapping it will actually do —
@@ -90,6 +82,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
           ref.invalidate(completedMatchesProvider);
         },
         child: ListView(
+          keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
           padding: const EdgeInsets.fromLTRB(16, 8, 16, 100),
           children: [
             // ── Hero header ──
@@ -129,180 +122,9 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
             const SizedBox(height: 32),
 
             // ── Completed matches section / empty state ──
-            completedMatches.when(
-              data: (matches) {
-                final hasActive = activeMatch.valueOrNull != null;
-
-                if (matches.isEmpty && hasActive) {
-                  // Show the Match History header with a 'no matches yet'
-                  // placeholder instead of blank space — the old
-                  // SizedBox.shrink() left a gaping hole below the
-                  // action buttons.
-                  return Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
-                        children: [
-                          Icon(Icons.history_rounded,
-                              size: 18,
-                              color: theme.colorScheme.onSurfaceVariant),
-                          const SizedBox(width: 6),
-                          Text(
-                            'Match History',
-                            style: theme.textTheme.titleSmall?.copyWith(
-                              color: theme.colorScheme.onSurfaceVariant,
-                              fontWeight: FontWeight.w600,
-                            ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 16),
-                      Text(
-                        'No completed matches yet.',
-                        style: theme.textTheme.bodySmall?.copyWith(
-                          color: theme.colorScheme.onSurfaceVariant,
-                        ),
-                      ),
-                    ],
-                  );
-                }
-
-                if (matches.isEmpty) {
-                  return EmptyState(
-                    icon: Icons.sports_tennis_rounded,
-                    iconColor: theme.colorScheme.primary,
-                    title: 'Ready to play?',
-                    subtitle:
-                        'Tap Standard Start to jump right in\nor New Match to customize everything.',
-                    action: FilledButton.icon(
-                      onPressed: () => context.push('/match/setup'),
-                      icon: const Icon(Icons.play_arrow_rounded),
-                      label: const Text('New Match'),
-                    ),
-                  );
-                }
-
-                final filtered =
-                    filterByPlayerName(matches, _searchQuery)
-                        .where((m) => !_deletedMatchIds.contains(m.id))
-                        .toList();
-
-                return Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      children: [
-                        Icon(Icons.history_rounded,
-                            size: 18,
-                            color: theme.colorScheme.onSurfaceVariant),
-                        const SizedBox(width: 6),
-                        Text(
-                          'Match History',
-                          style: theme.textTheme.titleSmall?.copyWith(
-                            color: theme.colorScheme.onSurfaceVariant,
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 10),
-                    // Search bar
-                    TextField(
-                      controller: _searchController,
-                      decoration: InputDecoration(
-                        hintText: 'Search by player name…',
-                        prefixIcon: const Icon(Icons.search_rounded, size: 20),
-                        suffixIcon: _searchQuery.isNotEmpty
-                            ? IconButton(
-                                icon: const Icon(Icons.clear_rounded, size: 18),
-                                onPressed: () {
-                                  _searchController.clear();
-                                  setState(() => _searchQuery = '');
-                                },
-                              )
-                            : null,
-                        filled: true,
-                        fillColor: theme.colorScheme.surfaceContainerHighest,
-                        border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(12),
-                          borderSide: BorderSide.none,
-                        ),
-                        contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-                        isDense: true,
-                      ),
-                      style: theme.textTheme.bodyMedium,
-                      onChanged: (v) => setState(() => _searchQuery = v),
-                    ),
-                    const SizedBox(height: 10),
-                    if (filtered.isEmpty && _searchQuery.isNotEmpty)
-                      Padding(
-                        padding: const EdgeInsets.symmetric(vertical: 20),
-                        child: Center(
-                          child: Column(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Text(
-                                "No matches found for '$_searchQuery'",
-                                style: theme.textTheme.bodyMedium?.copyWith(
-                                  color: theme.colorScheme.onSurfaceVariant,
-                                ),
-                              ),
-                              const SizedBox(height: 4),
-                              TextButton.icon(
-                                onPressed: () {
-                                  _searchController.clear();
-                                  setState(() => _searchQuery = '');
-                                },
-                                icon: const Icon(Icons.close_rounded, size: 18),
-                                label: const Text('Clear Search'),
-                              ),
-                            ],
-                          ),
-                        ),
-                      )
-                    else
-                      ...filtered.map((m) => _CompletedMatchCard(
-                            match: m,
-                            ref: ref,
-                            onDeleted: () {
-                              _deletedMatchIds.add(m.id);
-                              // ignore: unused_result
-                              ref.refresh(completedMatchesProvider);
-                              setState(() {});
-                            },
-                          )),
-                    if (matches.isNotEmpty && _searchQuery.isEmpty)
-                      _buildStatsRow(theme, matches),
-                  ],
-                );
-              },
-              loading: () => const Padding(
-                padding: EdgeInsets.only(top: 32),
-                child: Center(child: CircularProgressIndicator()),
-              ),
-              error: (e, _) => Padding(
-                padding: const EdgeInsets.only(top: 32),
-                child: Center(
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Icon(Icons.error_outline_rounded,
-                          size: 36, color: theme.colorScheme.error),
-                      const SizedBox(height: 12),
-                      Text('Failed to load match history',
-                          style: theme.textTheme.bodyMedium?.copyWith(
-                              color: theme.colorScheme.onSurfaceVariant)),
-                      const SizedBox(height: 8),
-                      TextButton.icon(
-                        onPressed: () =>
-                            ref.invalidate(completedMatchesProvider),
-                        icon: const Icon(Icons.refresh_rounded, size: 18),
-                        label: const Text('Retry'),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
+            _MatchHistorySection(
+              theme: theme,
+              hasActiveMatch: activeMatch.valueOrNull != null,
             ),
           ],
         ),
@@ -469,22 +291,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     return _TournamentsList(theme: theme);
   }
 
-  Widget _buildStatsRow(ThemeData theme, List<CompletedMatche> matches) {
-    final stats = calculateMatchStats(matches);
 
-    return Padding(
-      padding: const EdgeInsets.only(top: 16),
-      child: Row(
-        children: [
-          Expanded(child: _StatCard(label: 'Played', value: '${stats.totalMatches}', color: theme.colorScheme.primary, theme: theme)),
-          const SizedBox(width: 8),
-          Expanded(child: _StatCard(label: 'Win Rate', value: '${stats.winRatePercent}%', color: courtGreen, theme: theme)),
-          const SizedBox(width: 8),
-          Expanded(child: _StatCard(label: 'Avg Score', value: stats.avgScoreLabel, color: courtBlue, theme: theme)),
-        ],
-      ),
-    );
-  }
 }
 
 // ── Action Card ──
@@ -664,7 +471,7 @@ class _CompletedMatchCard extends StatelessWidget {
     final String scoreSummary = _formatScoreSummary(match.finalScores);
 
     return Semantics(
-      label: 'Match: $scoreSummary, $dateLabel',
+      label: '${match.type == 'singles' ? 'Singles' : 'Doubles'} match: $scoreSummary, $dateLabel',
       hint: 'Double tap to view details, swipe left to delete',
       child: Dismissible(
       key: Key('match-${match.id}'),
@@ -732,13 +539,29 @@ class _CompletedMatchCard extends StatelessWidget {
                         ),
                       ),
                       const SizedBox(height: 2),
-                      Text(
-                        '${match.type == 'singles' ? 'Singles' : 'Doubles'} · ${_formatPlayerNames(match)}',
-                        style: theme.textTheme.bodySmall?.copyWith(
-                          color: theme.colorScheme.onSurfaceVariant,
-                        ),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
+                      Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(
+                            match.type == 'singles'
+                                ? Icons.person
+                                : Icons.people,
+                            size: 14,
+                            color: theme.colorScheme.onSurfaceVariant
+                                .withValues(alpha: 0.6),
+                          ),
+                          const SizedBox(width: 4),
+                          Flexible(
+                            child: Text(
+                              _formatPlayerNames(match),
+                              style: theme.textTheme.bodySmall?.copyWith(
+                                color: theme.colorScheme.onSurfaceVariant,
+                              ),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                        ],
                       ),
                     ],
                   ),
@@ -1034,6 +857,261 @@ class _TournamentCard extends StatelessWidget {
     if (diff.inHours < 24) return '${diff.inHours}h ago';
     if (diff.inDays < 7) return '${diff.inDays}d ago';
     return '${dt.month}/${dt.day}/${dt.year}';
+  }
+}
+
+// ── Match History Section (isolated to prevent full HomeScreen rebuilds on search) ──
+
+class _MatchHistorySection extends ConsumerStatefulWidget {
+  final ThemeData theme;
+  final bool hasActiveMatch;
+
+  const _MatchHistorySection({required this.theme, required this.hasActiveMatch});
+
+  @override
+  ConsumerState<_MatchHistorySection> createState() => _MatchHistorySectionState();
+}
+
+class _MatchHistorySectionState extends ConsumerState<_MatchHistorySection> {
+  final _searchController = TextEditingController();
+  String _searchQuery = '';
+  final Set<int> _deletedMatchIds = {};
+  Timer? _debounceTimer;
+
+  @override
+  void dispose() {
+    _debounceTimer?.cancel();
+    _searchController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = widget.theme;
+    final completedMatches = ref.watch(completedMatchesProvider);
+
+    return completedMatches.when(
+      data: (matches) {
+        if (matches.isEmpty && widget.hasActiveMatch) {
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Icon(Icons.history_rounded,
+                      size: 18,
+                      color: theme.colorScheme.onSurfaceVariant),
+                  const SizedBox(width: 6),
+                  Text(
+                    'Match History',
+                    style: theme.textTheme.titleSmall?.copyWith(
+                      color: theme.colorScheme.onSurfaceVariant,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 16),
+              Text(
+                'No completed matches yet.',
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: theme.colorScheme.onSurfaceVariant,
+                ),
+              ),
+            ],
+          );
+        }
+
+        if (matches.isEmpty) {
+          return EmptyState(
+            icon: Icons.sports_tennis_rounded,
+            iconColor: theme.colorScheme.primary,
+            title: 'Ready to play?',
+            subtitle:
+                'Tap Standard Start to jump right in\nor New Match to customize everything.',
+            action: FilledButton.icon(
+              onPressed: () => context.push('/match/setup'),
+              icon: const Icon(Icons.play_arrow_rounded),
+              label: const Text('New Match'),
+            ),
+          );
+        }
+
+        final filtered = filterByPlayerName(matches, _searchQuery)
+            .where((m) => !_deletedMatchIds.contains(m.id))
+            .toList();
+
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Icon(Icons.history_rounded,
+                    size: 18,
+                    color: theme.colorScheme.onSurfaceVariant),
+                const SizedBox(width: 6),
+                Text(
+                  'Match History',
+                  style: theme.textTheme.titleSmall?.copyWith(
+                    color: theme.colorScheme.onSurfaceVariant,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 10),
+            // Search bar
+            TextField(
+              controller: _searchController,
+              decoration: InputDecoration(
+                hintText: 'Search by player name…',
+                prefixIcon:
+                    const Icon(Icons.search_rounded, size: 20),
+                suffixIcon: _searchQuery.isNotEmpty
+                    ? IconButton(
+                        icon: const Icon(Icons.clear_rounded,
+                            size: 18),
+                        onPressed: () {
+                          _searchController.clear();
+                          setState(() => _searchQuery = '');
+                        },
+                      )
+                    : null,
+                filled: true,
+                fillColor:
+                    theme.colorScheme.surfaceContainerHighest,
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                  borderSide: BorderSide.none,
+                ),
+                contentPadding: const EdgeInsets.symmetric(
+                    horizontal: 14, vertical: 10),
+                isDense: true,
+              ),
+              style: theme.textTheme.bodyMedium,
+              onChanged: (v) {
+                _debounceTimer?.cancel();
+                _debounceTimer = Timer(const Duration(milliseconds: 300), () {
+                  if (mounted) setState(() => _searchQuery = v);
+                });
+              },
+            ),
+            const SizedBox(height: 10),
+            if (filtered.isEmpty && _searchQuery.isNotEmpty)
+              Padding(
+                padding:
+                    const EdgeInsets.symmetric(vertical: 20),
+                child: Center(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        "No matches found for '$_searchQuery'",
+                        style: theme.textTheme.bodyMedium
+                            ?.copyWith(
+                                color: theme.colorScheme
+                                    .onSurfaceVariant),
+                      ),
+                      const SizedBox(height: 4),
+                      TextButton.icon(
+                        onPressed: () {
+                          _searchController.clear();
+                          setState(() => _searchQuery = '');
+                        },
+                        icon: const Icon(Icons.close_rounded,
+                            size: 18),
+                        label: const Text('Clear Search'),
+                      ),
+                    ],
+                  ),
+                ),
+              )
+            else
+              ...filtered.map((m) => _CompletedMatchCard(
+                    match: m,
+                    ref: ref,
+                    onDeleted: () {
+                      _deletedMatchIds.add(m.id);
+                      // ignore: unused_result
+                      ref.refresh(completedMatchesProvider);
+                      setState(() {});
+                    },
+                  )),
+            if (matches.isNotEmpty && _searchQuery.isEmpty)
+              _MatchStatsRow(theme: theme, matches: matches),
+          ],
+        );
+      },
+      loading: () => const ShimmerMatchHistory(),
+      error: (e, _) => Padding(
+        padding: const EdgeInsets.only(top: 32),
+        child: Center(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(Icons.error_outline_rounded,
+                  size: 36,
+                  color: theme.colorScheme.error),
+              const SizedBox(height: 12),
+              Text('Failed to load match history',
+                  style: theme.textTheme.bodyMedium?.copyWith(
+                      color: theme
+                          .colorScheme.onSurfaceVariant)),
+              const SizedBox(height: 8),
+              TextButton.icon(
+                onPressed: () =>
+                    ref.invalidate(completedMatchesProvider),
+                icon: const Icon(Icons.refresh_rounded,
+                    size: 18),
+                label: const Text('Retry'),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+// ── Match Stats Row (standalone widget, used only by _MatchHistorySection) ──
+
+class _MatchStatsRow extends StatelessWidget {
+  final ThemeData theme;
+  final List<CompletedMatche> matches;
+
+  const _MatchStatsRow({required this.theme, required this.matches});
+
+  @override
+  Widget build(BuildContext context) {
+    final stats = calculateMatchStats(matches);
+
+    return Padding(
+      padding: const EdgeInsets.only(top: 16),
+      child: Row(
+        children: [
+          Expanded(
+              child: _StatCard(
+                  label: 'Played',
+                  value: '${stats.totalMatches}',
+                  color: theme.colorScheme.primary,
+                  theme: theme)),
+          const SizedBox(width: 8),
+          Expanded(
+              child: _StatCard(
+                  label: 'Win Rate',
+                  value: '${stats.winRatePercent}%',
+                  color: courtGreen,
+                  theme: theme)),
+          const SizedBox(width: 8),
+          Expanded(
+              child: _StatCard(
+                  label: 'Avg Score',
+                  value: stats.avgScoreLabel,
+                  color: courtBlue,
+                  theme: theme)),
+        ],
+      ),
+    );
   }
 }
 

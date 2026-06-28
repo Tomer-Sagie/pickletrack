@@ -6,6 +6,7 @@ import '../../database/database.dart';
 import '../../providers/match_detail_provider.dart';
 import '../../services/share_service.dart';
 import '../../theme/colors.dart';
+import '../../widgets/shimmer.dart';
 
 class MatchDetailsScreen extends ConsumerStatefulWidget {
   final int matchId;
@@ -87,7 +88,7 @@ class _MatchDetailsScreenState extends ConsumerState<MatchDetailsScreen> {
       ),
       body: detail.when(
         data: (ctx) => _buildContent(context, theme, ctx),
-        loading: () => const Center(child: CircularProgressIndicator()),
+        loading: () => const ShimmerMatchDetails(),
         error: (e, _) => Center(
           child: Column(
             mainAxisSize: MainAxisSize.min,

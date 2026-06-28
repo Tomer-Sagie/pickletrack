@@ -10,6 +10,7 @@ import 'package:pickletrack/providers/theme_provider.dart';
 import 'helpers/stubs.dart';
 import 'package:pickletrack/screens/live/court_diagram.dart';
 import 'package:pickletrack/screens/live/live_match_screen.dart';
+import 'package:pickletrack/widgets/shimmer.dart';
 import 'package:pickletrack/services/scoring_service.dart';
 
 /// Stub notifier that extends LiveMatchNotifier using a real Ref from
@@ -210,7 +211,7 @@ void main() {
           child: const MaterialApp(home: LiveMatchScreen()),
         ),
       );
-      expect(find.byType(CircularProgressIndicator), findsOneWidget);
+      expect(find.byType(ShimmerMatchDetails), findsOneWidget);
     });
 
     testWidgets('shows doubles scoreboard with teams and scores',

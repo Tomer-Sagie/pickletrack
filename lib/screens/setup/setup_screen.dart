@@ -277,6 +277,7 @@ class _SetupScreenState extends ConsumerState<SetupScreen> {
         child: Form(
           key: _formKey,
           child: ListView(
+            keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
             padding: const EdgeInsets.fromLTRB(20, 8, 20, 100),
             children: [
               _buildMatchTypeSelector(theme),
