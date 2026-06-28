@@ -267,6 +267,24 @@ class AppDatabase extends _$AppDatabase {
         .getSingleOrNull();
   }
 
+  /// Updates mutable tournament metadata: name, players list,
+  /// and bracket JSON. Use this for in-place edits that don't change
+  /// the bracket structure (format/type/scoring/playTo/winBy/gameCount
+  /// are immutable post-creation).
+  Future<void> updateTournamentMeta({
+    required int tournamentId,
+    required String name,
+    required String playersJson,
+    required String bracketJson,
+  }) async {
+    await (update(tournaments)..where((t) => t.id.equals(tournamentId)))
+        .write(TournamentsCompanion(
+      name: Value(name),
+      playersJson: Value(playersJson),
+      bracketJson: Value(bracketJson),
+    ));
+  }
+
   /// Updates the bracket JSON and status for a tournament.
   Future<void> updateTournamentBracket({
     required int tournamentId,

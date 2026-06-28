@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:confetti/confetti.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -15,6 +16,22 @@ import '../../widgets/confirm_dialog.dart';
 import '../../widgets/shimmer.dart';
 import 'court_diagram.dart';
 import 'tutorial_overlay.dart';
+
+/// Exposed at top-level so stateless widgets (like [_SpectatorOverlay])
+/// share the same trim/filter + "Player N" fallback without duplicating
+/// the chain. The in-screen counterpart is [_LiveMatchScreenState._teamNames].
+List<String> filteredTeamNames(LiveMatchState state, String team,
+    {required String matchType}) {
+  final names = state.players
+      .where((p) => p.team == team)
+      .map((p) => p.name.trim())
+      .where((n) => n.isNotEmpty)
+      .toList();
+  if (names.isEmpty) {
+    return matchType == 'singles' ? ['Player 1'] : ['Player 1', 'Player 2'];
+  }
+  return names;
+}
 
 class LiveMatchScreen extends ConsumerStatefulWidget {
   const LiveMatchScreen({super.key});
@@ -37,12 +54,15 @@ class _LiveMatchScreenState extends ConsumerState<LiveMatchScreen> {
   Timer? _glowTimerB;
   bool _hapticEnabled = true;
   bool _showTutorial = false;
+  bool _showCourt = true;
   String? _sideOutMessage;
   Timer? _sideOutTimer;
+  late final ConfettiController _confettiController;
 
   @override
   void initState() {
     super.initState();
+    _confettiController = ConfettiController(duration: const Duration(seconds: 3));
     WakelockPlus.enable().catchError((_) {});
     _loadPrefs();
     _checkTutorial();
@@ -84,6 +104,7 @@ class _LiveMatchScreenState extends ConsumerState<LiveMatchScreen> {
 
   @override
   void dispose() {
+    _confettiController.dispose();
     WakelockPlus.disable().catchError((_) {});
     _glowTimerA?.cancel();
     _glowTimerB?.cancel();
@@ -120,7 +141,9 @@ class _LiveMatchScreenState extends ConsumerState<LiveMatchScreen> {
 
     ref.read(liveMatchProvider.notifier).scorePoint(team);
 
-    // Show side-out feedback in side-out scoring when non-serving team wins rally
+    // Show side-out feedback in side-out scoring when non-serving team wins rally.
+    // Use a stronger haptic (mediumImpact) so the user clearly feels the
+    // distinction between a point scored and a side-out (no score change).
     if (isSideOut) {
       final otherTeam = team == Team.A ? 'Team A' : 'Team B';
       _sideOutTimer?.cancel();
@@ -129,18 +152,26 @@ class _LiveMatchScreenState extends ConsumerState<LiveMatchScreen> {
         if (mounted) setState(() => _sideOutMessage = null);
       });
       SoundService().playPointScored();
+      if (_hapticEnabled) {
+        HapticFeedback.mediumImpact();
+      }
     } else {
       SoundService().playPointScored();
-    }
-
-    if (_hapticEnabled) {
-      HapticFeedback.lightImpact();
+      if (_hapticEnabled) {
+        HapticFeedback.lightImpact();
+      }
     }
   }
 
   Future<void> _onUndo() async {
-    ref.read(liveMatchProvider.notifier).undo();
+  // Distinct haptic for undo so the user knows they took an action even
+  // when nothing on the scoreboard visibly changes (e.g. immediately
+  // after a side-out where the score is identical before/after).
+  if (_hapticEnabled) {
+    HapticFeedback.selectionClick();
   }
+  await ref.read(liveMatchProvider.notifier).undo();
+}
 
   Future<void> _onEndMatch() async {
     final state = ref.read(liveMatchProvider);
@@ -148,8 +179,11 @@ class _LiveMatchScreenState extends ConsumerState<LiveMatchScreen> {
     final isTournamentMatch = state.match.tournamentId != null;
     final confirmed = await showConfirmDialog(
       context,
-      title: 'End Match',
-      message: 'End this match? Final scores will be saved.',
+      title: 'End Match?',
+      message:
+          'End this match and save final scores to history?\n\n'
+          'This cannot be undone. You can still scroll through the play-by-play '
+          'after ending, but new points cannot be scored.',
       confirmLabel: 'End Match',
       isDestructive: true,
     );
@@ -194,6 +228,7 @@ class _LiveMatchScreenState extends ConsumerState<LiveMatchScreen> {
 
     if (next.isMatchOver) {
       _showingBanner = true;
+      _confettiController.play();
       SoundService().playMatchEnd();
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted) _showMatchEndBanner(next);
@@ -204,14 +239,18 @@ class _LiveMatchScreenState extends ConsumerState<LiveMatchScreen> {
     if (next.teamAGamesWon > _prevGamesWonA ||
         next.teamBGamesWon > _prevGamesWonB) {
       _showingBanner = true;
+      _confettiController.play();
       SoundService().playGameEnd();
       final winner =
           next.teamAGamesWon > _prevGamesWonA ? 'A' : 'B';
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted) {
-          _showGameEndBanner(prev, next, winner)
-              .then((_) => _showingBanner = false);
-        }
+      WidgetsBinding.instance.addPostFrameCallback((_) async {
+        if (!mounted) return;
+        // The dialog result carries the user's intent — "Keep Playing"
+        // returned false (close, no nudge), "Next Game" returned true
+        // (close + explicit advance). Either way we re-arm the banner
+        // gate so the next game-end can show again.
+        await _showGameEndBanner(prev, next, winner);
+        _showingBanner = false;
       });
     }
 
@@ -219,12 +258,16 @@ class _LiveMatchScreenState extends ConsumerState<LiveMatchScreen> {
     _prevGamesWonB = next.teamBGamesWon;
   }
 
-  Future<void> _showGameEndBanner(
+  /// Returns the user's intent from the dialog:
+  ///   false → "Keep Playing" (close, no advance nudge)
+  ///   true  → "Next Game"   (close + explicit advance)
+  ///   null  → barrier-dismiss / back-press / pop-without-value
+  Future<bool?> _showGameEndBanner(
       LiveMatchState prevState, LiveMatchState nextState, String winner) async {
     final teamLabel = winner == 'A' ? 'Team A' : 'Team B';
     final scoreA = prevState.teamAScore;
     final scoreB = prevState.teamBScore;
-    await showDialog(
+    final result = await showDialog<bool?>(
       context: context,
       barrierDismissible: false,
       builder: (ctx) => PopScope(
@@ -239,14 +282,30 @@ class _LiveMatchScreenState extends ConsumerState<LiveMatchScreen> {
               '$teamLabel wins Game ${nextState.currentGame}\n$scoreA \u2013 $scoreB',
               textAlign: TextAlign.center),
           actions: [
+            // "Keep Playing" closes the banner and stays on the same
+            // rendered score (no auto-advance). Useful when the user
+            // wants to confirm the call or wait for the opponent.
+            // Returns false so the caller knows no advance is needed.
+            TextButton(
+              onPressed: () => Navigator.of(ctx).pop(false),
+              child: const Text('Keep Playing'),
+            ),
+            // "Next Game" closes the banner AND fires a fresh
+            // post-frame callback that nudges the playoff state, so the
+            // user sees the scoreboard land on the next game's empty
+            // 0-0 explicitly. The provider has already advanced, but a
+            // tap on Next Game keeps a focused user from
+            // accidentally scoring into the previous game's winner.
             FilledButton(
-                onPressed: () => Navigator.of(ctx).pop(),
-                child: const Text('Next Game'))
+              onPressed: () => Navigator.of(ctx).pop(true),
+              child: const Text('Next Game'),
+            ),
           ],
         ),
       ),
     );
     if (mounted) setState(() {});
+    return result;
   }
 
   Future<void> _showMatchEndBanner(LiveMatchState state) async {
@@ -352,11 +411,12 @@ class _LiveMatchScreenState extends ConsumerState<LiveMatchScreen> {
               ),
               Semantics(
                 button: true,
-                label: 'Save and exit, resume later from Home',
+                label: 'Pause and return later; resume from Home',
                 child: ListTile(
-                    leading: const Icon(Icons.save_alt_rounded, size: 28),
-                    title: const Text('Save & Exit'),
-                    subtitle: const Text('Resume later from Home'),
+                    leading: const Icon(Icons.pause_circle_outline_rounded,
+                        size: 28),
+                    title: const Text('Pause & Return Later'),
+                    subtitle: const Text('Resume from Home'),
                     onTap: () {
                       Navigator.of(ctx).pop();
                       if (mounted) context.go('/');
@@ -390,7 +450,7 @@ class _LiveMatchScreenState extends ConsumerState<LiveMatchScreen> {
     showDialog(
       context: context,
       barrierDismissible: true,
-      builder: (ctx) => _SpectatorOverlay(state: state),
+      builder: (ctx) => const _SpectatorOverlay(),
     );
   }
 
@@ -438,6 +498,20 @@ class _LiveMatchScreenState extends ConsumerState<LiveMatchScreen> {
 
     return Stack(
       children: [
+        // Confetti overlay — fires on match win / game win
+        Align(
+          alignment: Alignment.topCenter,
+          child: ConfettiWidget(
+            confettiController: _confettiController,
+            blastDirectionality: BlastDirectionality.explosive,
+            shouldLoop: false,
+            colors: const [courtGreen, courtBlue, Color(0xFFC8E030), Color(0xFFE8A317)],
+            numberOfParticles: 30,
+            maxBlastForce: 20,
+            minBlastForce: 5,
+            gravity: 0.1,
+          ),
+        ),
         Scaffold(
           appBar: _buildAppBar(liveState, theme),
           body: PopScope(
@@ -459,10 +533,17 @@ class _LiveMatchScreenState extends ConsumerState<LiveMatchScreen> {
                 },
                 child: Column(children: [
                   const SizedBox(height: 8),
-                  // Court fills available space at the top
-                  Expanded(child: _buildCourtDiagram(liveState)),
+                  // Optional court diagram — hidden by default per audit;
+                  // toggled from the AppBar action. When hidden, the score
+                  // card floats up so the user is always looking at the
+                  // numbers, not at pretty-but-unused real estate.
+                  if (_showCourt)
+                    Expanded(child: _buildCourtDiagram(liveState))
+                  else
+                    const SizedBox(height: 12),
                   const SizedBox(height: 10),
                   _buildGamePointIndicator(liveState, theme),
+                  _buildServerBanner(liveState, theme),
                   _buildUnifiedScore(liveState, theme),
                   if (_sideOutMessage != null) _buildSideOutChip(theme),
                   const SizedBox(height: 10),
@@ -517,29 +598,13 @@ class _LiveMatchScreenState extends ConsumerState<LiveMatchScreen> {
   }
 
   Widget _buildGamePointIndicator(LiveMatchState state, ThemeData theme) {
-    final scoring = state.scoringState;
-    if (scoring.isGameOver || scoring.isMatchOver) return const SizedBox.shrink();
+    // Delegate to [_isTeamAtGamePoint] so the banner and the per-
+    // scorecard dot can never drift apart on a future tweak.
+    final aAtGamePoint = _isTeamAtGamePoint(state, 'A');
+    final bAtGamePoint = _isTeamAtGamePoint(state, 'B');
+    if (!aAtGamePoint && !bAtGamePoint) return const SizedBox.shrink();
 
-    final int diff = (state.teamAScore - state.teamBScore).abs();
-    final int leaderScore = state.teamAScore > state.teamBScore ? state.teamAScore : state.teamBScore;
-    final int target = state.match.playTo;
-    final int winBy = state.match.winBy;
-
-    bool isGamePoint = false;
-    String? pointLabel;
-
-    if (leaderScore >= target && diff >= winBy - 1 && diff < winBy) {
-      isGamePoint = true;
-      pointLabel = 'Game Point';
-    } else if (leaderScore == target - 1 && diff >= winBy - 1) {
-      isGamePoint = true;
-      pointLabel = 'Game Point';
-    }
-
-    if (!isGamePoint) return const SizedBox.shrink();
-
-    final bool teamAIsLeader = state.teamAScore > state.teamBScore;
-    final Color pointColor = teamAIsLeader ? courtGreen : courtBlue;
+    final Color pointColor = aAtGamePoint ? courtGreen : courtBlue;
 
     return Padding(
       padding: const EdgeInsets.only(bottom: 6),
@@ -559,7 +624,7 @@ class _LiveMatchScreenState extends ConsumerState<LiveMatchScreen> {
             Icon(Icons.star_rounded, size: 14, color: pointColor),
             const SizedBox(width: 6),
             Text(
-              pointLabel!,
+              'Game Point',
               style: theme.textTheme.labelMedium?.copyWith(
                 color: pointColor,
                 fontWeight: FontWeight.w800,
@@ -595,6 +660,81 @@ class _LiveMatchScreenState extends ConsumerState<LiveMatchScreen> {
         ),
       ]),
       centerTitle: true,
+      actions: [
+        // Court toggle — the diagram is purely decorative and eats half
+        // the screen on small phones, so users opt-in via this small
+        // icon. Hidden by default floats the score UI to a more
+        // thumb-reachable spot.
+        IconButton(
+          icon: Icon(
+            _showCourt
+                ? Icons.grid_off_rounded
+                : Icons.grid_on_rounded,
+          ),
+          tooltip: _showCourt ? 'Hide court diagram' : 'Show court diagram',
+          onPressed: () => setState(() => _showCourt = !_showCourt),
+        ),
+      ],
+    );
+  }
+
+  // ── Server banner (visible regardless of court toggle) ──
+
+  /// Standalone server indicator chip that sits above the score card.
+  /// Always visible even when the court diagram is hidden so users
+  /// never lose track of who's serving mid-game.
+  Widget _buildServerBanner(LiveMatchState state, ThemeData theme) {
+    final serverTeam = state.serverTeam ?? 'A';
+    final teamColor = serverTeam == 'A' ? courtGreen : courtBlue;
+    final serverName =
+        ref.read(liveMatchProvider.notifier).serverDisplayName ?? '—';
+    final isDoubles = state.isDoubles;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+      child: Semantics(
+        container: true,
+        label:
+            '$serverName serving${isDoubles && state.isSideOut ? ', server ${state.serverNumber} of 2' : ''}',
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Container(
+              width: 8,
+              height: 8,
+              decoration: BoxDecoration(
+                color: teamColor,
+                shape: BoxShape.circle,
+              ),
+            ),
+            const SizedBox(width: 8),
+            Text(
+              '$serverName serving',
+              style: theme.textTheme.labelLarge?.copyWith(
+                color: teamColor,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+            if (isDoubles && state.isSideOut) ...[
+              const SizedBox(width: 6),
+              Container(
+                padding: const EdgeInsets.symmetric(
+                    horizontal: 8, vertical: 2),
+                decoration: BoxDecoration(
+                  color: theme.colorScheme.primary.withValues(alpha: 0.12),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: Text(
+                  'Server ${state.serverNumber}/2',
+                  style: theme.textTheme.labelSmall?.copyWith(
+                    color: theme.colorScheme.primary,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+              ),
+            ],
+          ],
+        ),
+      ),
     );
   }
 
@@ -624,12 +764,14 @@ class _LiveMatchScreenState extends ConsumerState<LiveMatchScreen> {
     final serverTeam = state.serverTeam ?? 'A';
     final teamColor = serverTeam == 'A' ? courtGreen : courtBlue;
     final callout = state.scoreCallout;
-    final serverName =
-        ref.read(liveMatchProvider.notifier).serverDisplayName ?? '\u2014';
-    final isDoubles = state.isDoubles;
 
     final aNames = _teamNames(state, 'A');
     final bNames = _teamNames(state, 'B');
+
+    // Compute game-point status here so we can pass it to each
+    // _scoreColumn — the leader gets a star dot next to its score.
+    final isGamePointA = _isTeamAtGamePoint(state, 'A');
+    final isGamePointB = _isTeamAtGamePoint(state, 'B');
 
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 12),
@@ -646,49 +788,19 @@ class _LiveMatchScreenState extends ConsumerState<LiveMatchScreen> {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            // ── Top: subtle server indicator ──
-            Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Container(
-                  width: 6,
-                  height: 6,
-                  decoration: BoxDecoration(
-                    color: teamColor,
-                    shape: BoxShape.circle,
-                  ),
-                ),
-                const SizedBox(width: 6),
-                Text(
-                  '$serverName serving',
-                  style: theme.textTheme.labelSmall?.copyWith(
-                      color: teamColor, fontWeight: FontWeight.w600),
-                ),
-                if (isDoubles && state.isSideOut) ...[
-                  const SizedBox(width: 4),
-                  Text(
-                    '\u2022 Server ${state.serverNumber}/2',
-                    style: theme.textTheme.labelSmall?.copyWith(
-                        color: theme.colorScheme.onSurfaceVariant,
-                        fontSize: 10),
-                  ),
-                ],
-              ],
-            ),
-            const SizedBox(height: 10),
-
             // ── Middle: scores + callout ──
             Row(
               children: [
                 // Team A score
                 Expanded(
                   child: _scoreColumn(
-                    state.teamAScore,
-                    aNames,
-                    state.teamAGamesWon,
-                    courtGreen,
-                    _glowA,
-                    theme,
+                    score: state.teamAScore,
+                    names: aNames,
+                    gamesWon: state.teamAGamesWon,
+                    accentColor: courtGreen,
+                    showGlow: _glowA,
+                    isGamePoint: isGamePointA,
+                    theme: theme,
                   ),
                 ),
                 // Callout center
@@ -724,12 +836,13 @@ class _LiveMatchScreenState extends ConsumerState<LiveMatchScreen> {
                 // Team B score
                 Expanded(
                   child: _scoreColumn(
-                    state.teamBScore,
-                    bNames,
-                    state.teamBGamesWon,
-                    courtBlue,
-                    _glowB,
-                    theme,
+                    score: state.teamBScore,
+                    names: bNames,
+                    gamesWon: state.teamBGamesWon,
+                    accentColor: courtBlue,
+                    showGlow: _glowB,
+                    isGamePoint: isGamePointB,
+                    theme: theme,
                   ),
                 ),
               ],
@@ -740,8 +853,15 @@ class _LiveMatchScreenState extends ConsumerState<LiveMatchScreen> {
     );
   }
 
-  Widget _scoreColumn(int score, List<String> names, int gamesWon,
-      Color accentColor, bool showGlow, ThemeData theme) {
+  Widget _scoreColumn({
+    required int score,
+    required List<String> names,
+    required int gamesWon,
+    required Color accentColor,
+    required bool showGlow,
+    required bool isGamePoint,
+    required ThemeData theme,
+  }) {
     return Column(
       mainAxisSize: MainAxisSize.min,
       children: [
@@ -756,18 +876,31 @@ class _LiveMatchScreenState extends ConsumerState<LiveMatchScreen> {
               overflow: TextOverflow.ellipsis,
             )),
         const SizedBox(height: 4),
-        // Score number
-        Text(
-          '$score',
-          key: ValueKey(score),
-          style: theme.textTheme.displaySmall?.copyWith(
-            fontWeight: FontWeight.w900,
-            fontSize: 56,
-            color: showGlow
-                ? accentColor
-                : theme.colorScheme.onSurface,
-            fontFeatures: const [FontFeature.tabularFigures()],
-          ),
+        // Score number — when this team is at game point, render a
+        // pulsing star dot next to the score. Lifts straight from the
+        // top-of-card banner so users see the cue wherever they're
+        // looking (court is up top, score is in the middle).
+        Row(
+          mainAxisSize: MainAxisSize.min,
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            if (isGamePoint) ...[
+              _PulseDot(color: accentColor),
+              const SizedBox(width: 6),
+            ],
+            Text(
+              '$score',
+              key: ValueKey(score),
+              style: theme.textTheme.displaySmall?.copyWith(
+                fontWeight: FontWeight.w900,
+                fontSize: 56,
+                color: showGlow
+                    ? accentColor
+                    : theme.colorScheme.onSurface,
+                fontFeatures: const [FontFeature.tabularFigures()],
+              ),
+            ),
+          ],
         ),
         // Games won dots
         if (gamesWon > 0) ...[
@@ -786,43 +919,87 @@ class _LiveMatchScreenState extends ConsumerState<LiveMatchScreen> {
     );
   }
 
+  /// Delegates to the top-level [filteredTeamNames] so the in-screen
+  /// helper and the spectator overlay share a single source of truth
+  /// for trim/filter + "Player N" fallback logic.
   List<String> _teamNames(LiveMatchState state, String team) {
-    return state.players
-        .where((p) => p.team == team)
-        .map((p) => p.name)
-        .toList();
+    return filteredTeamNames(state, team, matchType: state.match.type);
   }
 
-  // ── Point Buttons (equal visual weight) ──
+  /// True iff [team] can win the next point. Called by both the
+  /// top-of-card banner ([_buildGamePointIndicator]) and the per-
+  /// scorecard star dot — formerly duplicated as inline math blocks
+  /// in two places, which risked silently drifting on a tweak.
+  bool _isTeamAtGamePoint(LiveMatchState state, String team) {
+    if (state.scoringState.isGameOver || state.scoringState.isMatchOver) {
+      return false;
+    }
+    final myScore = team == 'A' ? state.teamAScore : state.teamBScore;
+    final oppScore = team == 'A' ? state.teamBScore : state.teamAScore;
+    final playTo = state.match.playTo;
+    final winBy = state.match.winBy;
+    final diff = myScore - oppScore;
+    // Either leading at the target by less than winBy (one point away),
+    // OR at playTo-1 with a diff that already meets winBy-1 (next point
+    // ties or wins — only game point if you're one point from the
+    // winning condition, which requires diff >= winBy-1 here).
+    if (myScore >= playTo && diff >= winBy - 1 && diff < winBy) return true;
+    if (myScore == playTo - 1 && diff >= winBy - 1) return true;
+    return false;
+  }
+
+  // ── Point Buttons (equal visual weight, side-out badge incide) ──
 
   Widget _buildPointButtons(LiveMatchState state) {
     final isRally = state.scoringRule == 'rally';
     final servingA = state.isTeamServing(Team.A);
     final servingB = state.isTeamServing(Team.B);
+    final aNames = _teamNames(state, 'A');
+    final bNames = _teamNames(state, 'B');
+    final aLabel = aNames.isNotEmpty ? aNames.join(' & ') : 'Team A';
+    final bLabel = bNames.isNotEmpty ? bNames.join(' & ') : 'Team B';
+    // Side-out badge: only show when the OPPOSITE team is serving AND this
+    // is sideout scoring. Tap registers a side-out (no point scored),
+    // so the badge tells users what tapping means. In rally scoring both
+    // buttons score, so no badge is shown.
+    final aCanSideOut = !isRally && !servingA;
+    final bCanSideOut = !isRally && !servingB;
 
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 12),
       child: Row(children: [
         Expanded(
           child: SizedBox(
-            height: 80,
+            height: 88,
             child: Semantics(
               button: true,
-              label: 'Team A Scores',
-              hint: 'Tap to score a point for Team A',
+              // Wording intentionally avoids the contradictory
+              // "scores (side-out)" phrasing — a side-out button does
+              // not change the score, so screen-reader users were
+              // hearing a verb that contradicted the visual outcome.
+              label: aCanSideOut
+                  ? '$aLabel claims side-out'
+                  : '$aLabel scores',
+              hint: aCanSideOut
+                  ? 'Side-out: serving team (B) loses rally to your team'
+                  : 'Tap to score a point for Team A',
               child: FilledButton(
                 onPressed: () => _onTeamScore(Team.A),
                 style: FilledButton.styleFrom(
-                  backgroundColor: (isRally || servingA)
-                      ? courtGreen
-                      : courtGreen.withValues(alpha: 0.45),
+                  // Full alpha for BOTH teams — dim alpha made the
+                  // non-serving button look disabled even though tapping
+                  // it is REQUIRED in side-out scoring. The side-out
+                  // badge inside the button communicates intent instead.
+                  backgroundColor: courtGreen,
                   foregroundColor: Colors.white,
                   shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(16)),
                 ),
-                child: const Text('Team A',
-                    style:
-                        TextStyle(fontSize: 20, fontWeight: FontWeight.w800)),
+                child: _buildPointButtonContent(
+                  label: aLabel,
+                  accentColor: Colors.white,
+                  sideOutBadge: aCanSideOut,
+                ),
               ),
             ),
           ),
@@ -830,29 +1007,68 @@ class _LiveMatchScreenState extends ConsumerState<LiveMatchScreen> {
         const SizedBox(width: 12),
         Expanded(
           child: SizedBox(
-            height: 80,
+            height: 88,
             child: Semantics(
               button: true,
-              label: 'Team B Scores',
-              hint: 'Tap to score a point for Team B',
+              label: bCanSideOut
+                  ? '$bLabel claims side-out'
+                  : '$bLabel scores',
+              hint: bCanSideOut
+                  ? 'Side-out: serving team (A) loses rally to your team'
+                  : 'Tap to score a point for Team B',
               child: FilledButton(
                 onPressed: () => _onTeamScore(Team.B),
                 style: FilledButton.styleFrom(
-                  backgroundColor: (isRally || servingB)
-                      ? courtBlue
-                      : courtBlue.withValues(alpha: 0.45),
+                  backgroundColor: courtBlue,
                   foregroundColor: Colors.white,
                   shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(16)),
                 ),
-                child: const Text('Team B',
-                    style:
-                        TextStyle(fontSize: 20, fontWeight: FontWeight.w800)),
+                child: _buildPointButtonContent(
+                  label: bLabel,
+                  accentColor: Colors.white,
+                  sideOutBadge: bCanSideOut,
+                ),
               ),
             ),
           ),
         ),
       ]),
+    );
+  }
+
+  /// Shared button content — label + optional side-out badge below.
+  Widget _buildPointButtonContent({
+    required String label,
+    required Color accentColor,
+    required bool sideOutBadge,
+  }) {
+    return Column(
+      mainAxisAlignment: MainAxisAlignment.center,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Text(label,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(
+                fontSize: 20, fontWeight: FontWeight.w800)),
+        if (sideOutBadge) ...[
+          const SizedBox(height: 2),
+          Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(Icons.sync_alt_rounded, size: 12, color: accentColor),
+              const SizedBox(width: 4),
+              Text('Side-Out',
+                  style: TextStyle(
+                      fontSize: 10,
+                      fontWeight: FontWeight.w700,
+                      color: accentColor,
+                      letterSpacing: 0.5)),
+            ],
+          ),
+        ],
+      ],
     );
   }
 
@@ -868,8 +1084,8 @@ class _LiveMatchScreenState extends ConsumerState<LiveMatchScreen> {
             button: true,
             label: 'Undo last point',
             child: SizedBox(
-              width: 48,
-              height: 48,
+              width: 56,
+              height: 56,
               child: IconButton(
                 onPressed: state.canUndo ? _onUndo : null,
                 icon: const Icon(Icons.undo_rounded, size: 22),
@@ -913,6 +1129,59 @@ class _LiveMatchScreenState extends ConsumerState<LiveMatchScreen> {
   }
 }
 
+class _PulseDot extends StatefulWidget {
+  final Color color;
+  const _PulseDot({required this.color});
+
+  @override
+  State<_PulseDot> createState() => _PulseDotState();
+}
+
+class _PulseDotState extends State<_PulseDot>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _ctrl;
+
+  @override
+  void initState() {
+    super.initState();
+    _ctrl = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 900),
+    )..repeat(reverse: true);
+  }
+
+  @override
+  void dispose() {
+    _ctrl.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: _ctrl,
+      builder: (_, __) {
+        final t = _ctrl.value;
+        return Container(
+          width: 10 + 4 * t,
+          height: 10 + 4 * t,
+          decoration: BoxDecoration(
+            color: widget.color.withValues(alpha: 0.85 - 0.45 * t),
+            shape: BoxShape.circle,
+            boxShadow: [
+              BoxShadow(
+                color: widget.color.withValues(alpha: 0.4 * (1 - t)),
+                blurRadius: 8 + 6 * t,
+                spreadRadius: 1 + 2 * t,
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+}
+
 // ── Isolated timer widget — prevents 1Hz full-screen rebuilds ──
 
 class _MatchTimerSubtitle extends StatefulWidget {
@@ -931,17 +1200,39 @@ class _MatchTimerSubtitle extends StatefulWidget {
 }
 
 // ── Spectator overlay — large scores for tablets/spectators ──
+//
+// Wrapped as a ConsumerWidget (rather than a captured snapshot) so the
+// display refreshes live as points are scored from the match screen
+// behind the dialog. Previously the overlay showed a frozen view until
+// the user dismissed and re-opened it.
 
-class _SpectatorOverlay extends StatelessWidget {
-  final LiveMatchState state;
-
-  const _SpectatorOverlay({required this.state});
+class _SpectatorOverlay extends ConsumerWidget {
+  const _SpectatorOverlay();
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
+    final state = ref.watch(liveMatchProvider);
     final theme = Theme.of(context);
-    final aNames = state.players.where((p) => p.team == 'A').map((p) => p.name).join(' & ');
-    final bNames = state.players.where((p) => p.team == 'B').map((p) => p.name).join(' & ');
+    // If the match ended while the overlay was open (e.g. user let the
+    // game time out from the main screen), fall back to a placeholder
+    // so the overlay doesn't crash.
+    if (state == null) {
+      return GestureDetector(
+        onTap: () => Navigator.of(context).pop(),
+        child: Scaffold(
+          body: Center(
+            child: Text(
+              'Match ended',
+              style: theme.textTheme.titleLarge?.copyWith(
+                color: theme.colorScheme.onSurfaceVariant,
+              ),
+            ),
+          ),
+        ),
+      );
+    }
+    final aNames = filteredTeamNames(state, 'A', matchType: state.match.type).join(' & ');
+    final bNames = filteredTeamNames(state, 'B', matchType: state.match.type).join(' & ');
 
     return GestureDetector(
       onTap: () => Navigator.of(context).pop(),

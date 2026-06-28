@@ -6,6 +6,7 @@ import '../../database/database.dart';
 import '../../providers/match_detail_provider.dart';
 import '../../services/share_service.dart';
 import '../../theme/colors.dart';
+import '../../utils/match_date_format.dart';
 import '../../widgets/shimmer.dart';
 
 class MatchDetailsScreen extends ConsumerStatefulWidget {
@@ -357,9 +358,7 @@ class _MatchDetailsScreenState extends ConsumerState<MatchDetailsScreen> {
     );
   }
 
-  String _formatDate(DateTime dt) {
-    return '${dt.month}/${dt.day}/${dt.year} ${dt.hour}:${dt.minute.toString().padLeft(2, '0')}';
-  }
+  String _formatDate(DateTime dt) => formatMatchDate(dt);
 
   Future<void> _handleShare(
     BuildContext context,

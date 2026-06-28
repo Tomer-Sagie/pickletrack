@@ -224,8 +224,8 @@ void main() {
       // Both teams have score 0 (unified score shows two score columns).
       // The callout "0-0-2" also contains 0s, so find.text('0') will
       // match more than 2. Just verify both point buttons exist.
-      expect(find.text('Team A'), findsOneWidget);
-      expect(find.text('Team B'), findsOneWidget);
+      expect(find.text('Alice & Bob'), findsOneWidget);
+      expect(find.text('Carol & Dave'), findsOneWidget);
     });
 
     testWidgets('score cards show team scores in unified widget',
@@ -347,12 +347,12 @@ void main() {
       );
       await tester.pump();
 
-      await tester.tap(find.text('Team A'));
+      await tester.tap(find.text('Alice & Bob'));
       await tester.pump();
       expect(notifier!.scorePointCalls, 1);
 
       // Second rapid tap is suppressed by the 500 ms unified debounce.
-      await tester.tap(find.text('Team B'));
+      await tester.tap(find.text('Carol & Dave'));
       await tester.pump();
       expect(notifier!.scorePointCalls, 1);
     });
@@ -382,7 +382,7 @@ void main() {
       await tester.pump();
 
       // Tap Team B first (not debounced by a prior Team A tap).
-      await tester.tap(find.text('Team B'));
+      await tester.tap(find.text('Carol & Dave'));
       await tester.pump();
       expect(notifier!.scorePointCalls, 1);
     });
@@ -416,7 +416,7 @@ void main() {
       expect(find.text('0'), findsAtLeastNWidgets(1));
 
       // Tap Team A's score button.
-      await tester.tap(find.text('Team A'));
+      await tester.tap(find.text('Alice & Bob'));
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 300));
 
@@ -532,7 +532,7 @@ void main() {
 
       expect(find.text('0-0-2'), findsOneWidget);
 
-      await tester.tap(find.text('Team A'));
+      await tester.tap(find.text('Alice & Bob'));
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 300));
       await tester.pump(const Duration(milliseconds: 50));
@@ -570,7 +570,7 @@ void main() {
       await tester.pump();
 
       // Tap Team B — forces side-out.
-      await tester.tap(find.text('Team B'));
+      await tester.tap(find.text('Carol & Dave'));
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 300));
 

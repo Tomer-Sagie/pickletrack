@@ -37,6 +37,21 @@
   <title>PickleTrack</title>
   <link rel="manifest" href="manifest.json">
 
+  <!-- Eliminate white flash on cold start: match app surface colors.
+       Dark mode gets #13140E, light mode gets #FDFCF5. The media query
+       respects the system preference so PWA standalone launches don't
+       flash the wrong color before Flutter paints. -->
+  <style>
+    html, body {
+      margin: 0;
+      padding: 0;
+      background-color: #13140E;
+    }
+    @media (prefers-color-scheme: light) {
+      html, body { background-color: #FDFCF5; }
+    }
+  </style>
+
   <!-- PWA: Service Worker -->
   <script>
     if ('serviceWorker' in navigator) {

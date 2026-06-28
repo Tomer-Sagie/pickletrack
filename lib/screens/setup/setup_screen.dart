@@ -162,6 +162,21 @@ class _SetupScreenState extends ConsumerState<SetupScreen> {
 
   String _teamForIndex(int index) => index < _teamAControllers.length ? 'A' : 'B';
 
+  /// Synthesizes a live [ScoringPreset] from the Custom Play-to / Win-by
+  /// text fields. Used by the Win Condition dropdown so the "Custom"
+  /// menu item always shows the currently typed values instead of an
+  /// empty / static string. Falls back to 11 / 2 if either field is
+  /// empty / non-numeric; clamps to the valid range so [ScoringPreset.custom]
+  /// never throws on the way to render.
+  ScoringPreset _currentCustomPreset() {
+    final p = int.tryParse(_customPlayToController.text.trim()) ?? 11;
+    final w = int.tryParse(_customWinByController.text.trim()) ?? 2;
+    return ScoringPreset.custom(
+      playTo: p.clamp(1, 99),
+      winBy: w.clamp(1, 10),
+    );
+  }
+
   @override
   void dispose() {
     for (final c in _teamAControllers) { c.dispose(); }
@@ -281,17 +296,17 @@ class _SetupScreenState extends ConsumerState<SetupScreen> {
             padding: const EdgeInsets.fromLTRB(20, 8, 20, 100),
             children: [
               _buildMatchTypeSelector(theme),
-              const SizedBox(height: 24),
+              const SizedBox(height: 16),
               _buildPlayerNamesSection(theme),
-              const SizedBox(height: 24),
+              const SizedBox(height: 16),
               _buildStartingServerSelector(theme),
-              const SizedBox(height: 24),
+              const SizedBox(height: 16),
               _buildScoringRuleSelector(theme),
-              const SizedBox(height: 24),
+              const SizedBox(height: 16),
               _buildGameCountSelector(theme),
-              const SizedBox(height: 24),
+              const SizedBox(height: 16),
               _buildPresetPicker(theme),
-              const SizedBox(height: 32),
+              const SizedBox(height: 24),
               _buildStartButton(theme),
             ],
           ),
@@ -441,34 +456,42 @@ class _SetupScreenState extends ConsumerState<SetupScreen> {
         Semantics(
           header: true,
           child: _SectionLabel(icon: Icons.emoji_events_rounded, label: 'Win Condition', theme: theme),
-        ),
-        const SizedBox(height: 8),
-        DropdownButtonFormField<ScoringPreset>(
-          value: _isCustomPreset ? null : _selectedPreset,
-          items: [
-            ...ScoringPreset.defaults.map((p) => DropdownMenuItem(value: p, child: Text(p.label))),
-            const DropdownMenuItem(value: null, child: Text('Custom...')),
-          ],
-          onChanged: (preset) {
-            setState(() {
-              if (preset != null) {
-                _isCustomPreset = false; _selectedPreset = preset;
-                // When picking a built-in preset the int fields track its
-                // values so any preview UI stays consistent.
-                _playTo = preset.playTo; _winBy = preset.winBy;
-              } else {
-                // Switching into Custom mode intentionally does NOT touch
-                // _playTo / _winBy — the values used at submit are read
-                // from _customPlayToController / _customWinByController
-                // (parsed in _startMatch when _isCustomPreset is true).
-                // Seeding 11/2 here would wipe any custom numbers the user
-                // already typed when toggling Standard → Custom back and
-                // forth. The field defaults (declared at the top of the
-                // State class) provide a sane starting value for fresh
-                // sessions; toggling preserves the user's input.
-                _isCustomPreset = true;
-              }
-            });
+        ),        const SizedBox(height: 8),
+        // The Custom item is synthesized live from the text-field values
+        // so the dropdown always shows what the Custom row will produce
+        // (e.g. "Custom (13, win by 2)"). Value can no longer be null —
+        // a non-nullable separator avoids the empty-dropdown flicker.
+        Builder(
+          builder: (_) {
+            final customValue = _currentCustomPreset();
+            return DropdownButtonFormField<ScoringPreset>(
+              value: _isCustomPreset ? customValue : _selectedPreset,
+              items: [
+                ...ScoringPreset.defaults.map(
+                  (p) => DropdownMenuItem(value: p, child: Text(p.label)),
+                ),
+                DropdownMenuItem(
+                  value: customValue,
+                  child: Text(customValue.label),
+                ),
+              ],
+              onChanged: (preset) {
+                if (preset == null) return;
+                setState(() {
+                  if (preset.isCustom) {
+                    _isCustomPreset = true;
+                  } else {
+                    _isCustomPreset = false;
+                    _selectedPreset = preset;
+                    // Keep the int fields in sync with the built-in
+                    // preset so transitioning out of Custom is a no-op
+                    // if the user toggles back.
+                    _playTo = preset.playTo;
+                    _winBy = preset.winBy;
+                  }
+                });
+              },
+            );
           },
         ),
         if (_isCustomPreset) ...[
@@ -479,6 +502,13 @@ class _SetupScreenState extends ConsumerState<SetupScreen> {
                 controller: _customPlayToController,
                 decoration: const InputDecoration(labelText: 'Play to'),
                 keyboardType: TextInputType.number,
+                // The dropdown's selected value is `_currentCustomPreset()`,
+                // which reads these controllers. Without an onChanged that
+                // calls setState, typing in a custom field would rebuild
+                // the items list (new synthesized preset) but leave the
+                // selected value untouched, causing DropdownButtonFormField
+                // to display an empty / stale label.
+                onChanged: (_) => setState(() {}),
                 validator: (v) {
                   final n = int.tryParse(v?.trim() ?? '');
                   if (n == null || n < 1 || n > 99) {
@@ -494,6 +524,7 @@ class _SetupScreenState extends ConsumerState<SetupScreen> {
                 controller: _customWinByController,
                 decoration: const InputDecoration(labelText: 'Win by'),
                 keyboardType: TextInputType.number,
+                onChanged: (_) => setState(() {}),
                 validator: (v) {
                   final n = int.tryParse(v?.trim() ?? '');
                   if (n == null || n < 1 || n > 10) {

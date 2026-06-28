@@ -127,12 +127,40 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                     ),
                   ),
                   const SizedBox(height: 8),
-                  Text(
-                    'A free, offline-first pickleball score tracker.\nNo ads, no accounts, no internet required.',
-                    style: theme.textTheme.bodySmall?.copyWith(
-                      color: theme.colorScheme.onSurfaceVariant,
-                      height: 1.4,
-                    ),
+                  // Replace the previous two-sentence run-on ("A free,
+                  // offline-first pickleball score tracker. / No ads, no
+                  // accounts, no internet required.") with an icon-led
+                  // bullet list, matching the visual rhythm used by the
+                  // How-to-Play sections below. Each row states one concrete
+                  // promise of the app so the value-prop reads at a glance
+                  // instead of blending into a paragraph.
+                  //
+                  // The first row is intentionally a positive "what the
+                  // app IS" line (scores matches) so the brand name above
+                  // isn't the only thing anchoring a first-time user to
+                  // the app's purpose. The remaining three rows surface
+                  // the "what it ISN'T" promises from the original copy.
+                  const _AboutFeature(
+                    // `add_task_rounded` (clipboard + plus) is the verb
+                    // "log a new entry" — the action — vs `scoreboard`
+                    // which is the noun (the display).
+                    icon: Icons.add_task_rounded,
+                    label: 'Scores every match you play',
+                  ),
+                  const SizedBox(height: 2),
+                  const _AboutFeature(
+                    icon: Icons.local_offer_rounded,
+                    label: 'Free — no subscriptions or hidden costs',
+                  ),
+                  const SizedBox(height: 2),
+                  const _AboutFeature(
+                    icon: Icons.cloud_off_rounded,
+                    label: 'Works fully offline',
+                  ),
+                  const SizedBox(height: 2),
+                  const _AboutFeature(
+                    icon: Icons.privacy_tip_rounded,
+                    label: 'No ads, accounts, or tracking',
                   ),
                 ],
               ),
@@ -240,66 +268,34 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   }
 
   void _showScoringRulePicker() async {
-    final ruleProvider = defaultScoringRuleProvider;
-    final current = ref.read(ruleProvider).value ?? 'sideout';
-
-    final result = await showDialog<String>(
+    final current = ref.read(defaultScoringRuleProvider).value ?? 'sideout';
+    final result = await _showPickerBottomSheet<String>(
       context: context,
-      builder: (context) => SimpleDialog(
-        title: const Text('Default scoring rule'),
-        children: [
-          RadioListTile<String>(
-            title: const Text('Side-Out'),
-            subtitle: const Text('Only the serving team can score'),
-            value: 'sideout',
-            groupValue: current,
-            onChanged: (v) => Navigator.pop(context, v),
-          ),
-          RadioListTile<String>(
-            title: const Text('Rally'),
-            subtitle: const Text('Every rally scores a point'),
-            value: 'rally',
-            groupValue: current,
-            onChanged: (v) => Navigator.pop(context, v),
-          ),
-        ],
-      ),
+      title: 'Default scoring rule',
+      current: current,
+      options: const [
+        _PickerOption(value: 'sideout', label: 'Side-Out', subtitle: 'Only the serving team can score'),
+        _PickerOption(value: 'rally', label: 'Rally', subtitle: 'Every rally scores a point'),
+      ],
     );
-
     if (result != null) {
       ref.read(settingsNotifierProvider.notifier).setDefaultScoringRule(result);
     }
   }
 
   void _showGameCountPicker() async {
-    final countProvider = defaultGameCountProvider;
-    final current = ref.read(countProvider).value ?? 1;
-
-    final result = await showDialog<int>(
+    final current = ref.read(defaultGameCountProvider).value ?? 1;
+    final result = await _showPickerBottomSheet<int>(
       context: context,
-      builder: (context) => SimpleDialog(
-        title: const Text('Default games'),
-        children: [
-          RadioListTile<int>(
-            title: const Text('1 Game'),
-            value: 1,
-            groupValue: current,
-            onChanged: (v) => Navigator.pop(context, v),
-          ),
-          RadioListTile<int>(
-            title: const Text('Best of 3'),
-            value: 3,
-            groupValue: current,
-            onChanged: (v) => Navigator.pop(context, v),
-          ),
-        ],
-      ),
+      title: 'Default games',
+      current: current,
+      options: const [
+        _PickerOption(value: 1, label: '1 Game'),
+        _PickerOption(value: 3, label: 'Best of 3'),
+      ],
     );
-
     if (result != null) {
-      ref
-          .read(settingsNotifierProvider.notifier)
-          .setDefaultGameCount(result);
+      ref.read(settingsNotifierProvider.notifier).setDefaultGameCount(result);
     }
   }
 
@@ -369,38 +365,34 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
 
   void _showPresetPicker() async {
     final current = ref.read(defaultScoringPresetProvider).value ?? ScoringPreset.standard;
-
-    final result = await showDialog<ScoringPreset>(
-      context: context,
-      builder: (context) => SimpleDialog(
-        title: const Text('Default win condition'),
-        children: [
-          // When the user's current default is a Custom preset (set via
-          // Setup), render a disabled informational radio at the top so
-          // the picker never shows up with no radio selected. The tile
-          // labels the exact play-to / win-by values so the user can see
-          // what their active custom default is, but tapping it is a no-op
-          // — Custom defaults can only be edited through Setup.
-          if (current.isCustom)
-            RadioListTile<ScoringPreset>(
-              title: const Text('Custom (set via Setup)'),
-              subtitle: Text(
-                '${current.playTo}, win by ${current.winBy}',
-              ),
+    final builtInOptions = ScoringPreset.defaults
+        .map((p) => _PickerOption(
+              value: p,
+              label: p.label,
+            ))
+        .toList();
+    // When the user's current default is a Custom preset (set via
+    // Setup), prepend a disabled informational option so the picker
+    // never appears with no selected radio. The option's subtitle shows
+    // the exact play-to / win-by values; tapping it is a no-op because
+    // Custom defaults can only be edited through Setup.
+    final options = current.isCustom
+        ? <_PickerOption<ScoringPreset>>[
+            _PickerOption<ScoringPreset>(
               value: current,
-              groupValue: current,
-              onChanged: null,
+              label: 'Custom (set via Setup)',
+              subtitle: '${current.playTo}, win by ${current.winBy}',
+              disabled: true,
             ),
-          ...ScoringPreset.defaults.map((p) => RadioListTile<ScoringPreset>(
-            title: Text(p.label),
-            value: p,
-            groupValue: current,
-            onChanged: (v) => Navigator.pop(context, v),
-          )),
-        ],
-      ),
+            ...builtInOptions,
+          ]
+        : builtInOptions;
+    final result = await _showPickerBottomSheet<ScoringPreset>(
+      context: context,
+      title: 'Default win condition',
+      current: current,
+      options: options,
     );
-
     if (result != null) {
       ref.read(settingsNotifierProvider.notifier).setDefaultPreset(result);
     }
@@ -413,10 +405,12 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       child: _SettingsTile(
         icon: Icons.delete_outline_rounded,
         label: 'Clear all data',
+        // Destructive actions get a warning chip instead of a chevron,
+        // which would (incorrectly) read as "navigate to a sub-screen".
         trailing: Icon(
-          Icons.chevron_right_rounded,
-          color: theme.colorScheme.onSurfaceVariant,
-          size: 20,
+          Icons.warning_amber_rounded,
+          color: theme.colorScheme.error,
+          size: 22,
         ),
         onTap: () => _confirmClearData(),
         isDestructive: true,
@@ -466,11 +460,9 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     );
   }
 
-  // TODO(i18n): The How-to-Play body strings below are hardcoded
-  // English. When localizing, extract them into a structured list
-  // (List<{String title, String body}>) keyed by locale so the
-  // ExpansionTile children can be generated from a data source
-  // instead of inline literals.
+  // The How-to-Play body is supplied by [_kHowToPlaySections] (a
+  // top-level const List<Map<String, Object>>) and rendered by
+  // [_buildHowToPlaySections]. Future locale swaps are data-only.
   Widget _buildHowToPlay(ThemeData theme) {
     return Card(
       elevation: 0,
@@ -480,36 +472,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
         title: Text('How to Play', style: theme.textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.w600)),
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
         childrenPadding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
-        children: [
-          const _HowToPlaySection(
-            title: 'Basic Rules',
-            body: 'Games are played to 11 points (or 7/15 for Quick/Tournament). '
-                'You must win by 2 points. In side-out scoring, only the serving '
-                'team can score points.',
-          ),
-          const _HowToPlaySection(
-            title: 'Doubles Serving',
-            body: 'The first server of the game starts as Server 2 (0-0-2). '
-                'Server 1 serves until losing a rally, then Server 2 serves. '
-                'After Server 2 loses, it\'s a side-out to the other team. '
-                'When the serving team scores, partners switch sides.',
-          ),
-          const _HowToPlaySection(
-            title: 'Singles Serving',
-            body: 'The server serves from the right side when their score is even, '
-                'and from the left when their score is odd. A lost rally is a side-out.',
-          ),
-          const _HowToPlaySection(
-            title: 'Rally Scoring',
-            body: 'Every rally awards a point — the team that wins the rally scores, '
-                'regardless of who served. The serving team changes after each lost rally.',
-          ),
-          const _HowToPlaySection(
-            title: 'The Kitchen',
-            body: 'Players cannot volley the ball while standing in the non-volley zone '
-                '(the kitchen). The ball must bounce before hitting it if you\'re in the kitchen.',
-          ),
-        ],
+        children: _buildHowToPlaySections(),
       ),
     );
   }
@@ -594,34 +557,312 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   }
 }
 
+// ── How-to-Play data source ──
+
+/// Localisation-ready data source for the How-to-Play expansion. Each
+/// map entry carries:
+///
+///  • `'title'`   — [String], section heading
+///  • `'icon'`    — [IconData], topic-matching lead-in glyph
+///  • `'bullets'` — [List]<[String]>, discrete rules under the title
+///
+/// Replaces the previous hand-rolled `_HowToPlaySection(...)` literals
+/// inside `_buildHowToPlay`. Lifting the data out of widget code means
+/// future locale swaps become pure data edits — wrap this list in a
+/// `Map<Locale, List<Map<String, Object>>>` (or load it from an asset)
+/// without touching any widget code.
+///
+/// The map shape ([Map]<[String], [Object]>) matches the codebase's
+/// convention for structured locale-agnostic data, so any future
+/// data-driven expansion (sound effects, undo copy, etc.) can lift
+/// literals the same way. Dart 3 records would be a more type-safe
+/// alternative if direct map↔locale-object symmetry isn't needed.
+const List<Map<String, Object>> _kHowToPlaySections = <Map<String, Object>>[
+  <String, Object>{
+    'title': 'Basic Rules',
+    'icon': Icons.rule_rounded,
+    'bullets': <String>[
+      'Games are played to 11 points (or 7/15 for Quick/Tournament).',
+      'You must win by 2 points.',
+      'In side-out scoring, only the serving team can score points.',
+    ],
+  },
+  <String, Object>{
+    'title': 'Doubles Serving',
+    'icon': Icons.groups_2_rounded,
+    'bullets': <String>[
+      'The first server of the game starts as Server 2 (0-0-2).',
+      'Server 1 serves until losing a rally, then Server 2 serves.',
+      'After Server 2 loses, it’s a side-out to the other team.',
+      'When the serving team scores, partners switch sides.',
+    ],
+  },
+  <String, Object>{
+    'title': 'Singles Serving',
+    'icon': Icons.person_rounded,
+    'bullets': <String>[
+      'Serve from the right side when your score is even.',
+      'Serve from the left side when your score is odd.',
+      'A lost rally is a side-out (you lose the serve).',
+    ],
+  },
+  <String, Object>{
+    'title': 'Rally Scoring',
+    'icon': Icons.flash_on_rounded,
+    'bullets': <String>[
+      'Every rally awards a point — the rally winner scores.',
+      'Either team can score, regardless of who served.',
+      'The serving team changes after each lost rally.',
+    ],
+  },
+  <String, Object>{
+    'title': 'The Kitchen',
+    // `do_disturb_alt_rounded` reads as the do-not / no-entry
+    // indicator, which carries the "you can't volley here" zone
+    // restriction more directly than a generic `block_rounded`.
+    'icon': Icons.do_disturb_alt_rounded,
+    'bullets': <String>[
+      'No volleying while standing in the non-volley zone (the kitchen).',
+      'The ball must bounce before you hit it if your feet are in the kitchen.',
+    ],
+  },
+];
+
+/// Materialises [_kHowToPlaySections] as a `List<Widget>` of
+/// `_HowToPlaySection` widgets. Lives at file-scope (not as a
+/// `_SettingsScreenState` method) so that any future locale-keyed
+/// variant of the data source can share the same renderer.
+///
+/// Casting `'bullets'` via `(List).cast<String>()` accounts for
+/// Dart's runtime generic erasure — at runtime `_kHowToPlaySections`
+/// is just `List`, so we recover static `List<String>` typing here
+/// instead of at every read site.
+List<Widget> _buildHowToPlaySections() {
+  return <Widget>[
+    for (final section in _kHowToPlaySections)
+      _HowToPlaySection(
+        title: section['title']! as String,
+        icon: section['icon']! as IconData,
+        bullets: section['bullets']! as List<String>,
+      ),
+  ];
+}
+
 // ── How to Play Section ──
 
+/// One bullet-list entry inside the How-to-Play expansion. Each
+/// section gets:
+///
+///  • a small [icon] leading the title (signals the topic at a glance)
+///  • a list of [bullets], each rendered with a leading bullet glyph
+///    so the body reads as discrete rules instead of a paragraph.
+///
+/// The `bullets` list replaces the previous single-string `body`, which
+/// collapsed several rules into a run-on sentence that hid the "list
+/// of things you must remember" feel.
 class _HowToPlaySection extends StatelessWidget {
   final String title;
-  final String body;
+  final IconData icon;
+  final List<String> bullets;
 
-  const _HowToPlaySection({required this.title, required this.body});
+  const _HowToPlaySection({
+    required this.title,
+    required this.icon,
+    required this.bullets,
+  });
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     return Padding(
-      padding: const EdgeInsets.only(bottom: 12),
+      padding: const EdgeInsets.only(bottom: 14),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(title,
-              style: theme.textTheme.labelMedium?.copyWith(
+          Row(
+            children: [
+              Icon(icon, size: 16, color: theme.colorScheme.primary),
+              const SizedBox(width: 6),
+              Text(
+                title,
+                style: theme.textTheme.labelMedium?.copyWith(
                   fontWeight: FontWeight.w700,
-                  color: theme.colorScheme.primary)),
-          const SizedBox(height: 2),
-          Text(body,
-              style: theme.textTheme.bodySmall?.copyWith(
-                  color: theme.colorScheme.onSurfaceVariant, height: 1.4)),
+                  color: theme.colorScheme.primary,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 4),
+          // Indent the bullet list so the bullet glyphs line up under
+          // the title text (not under the icon) — the title row is
+          // Icon(16) + SizedBox(6) + Text, so the title text starts
+          // at 22px from the content edge. Keeping the bullets at the
+          // same 22px avoids a floating-text look.
+          Padding(
+            padding: const EdgeInsets.only(left: 22),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                for (final bullet in bullets)
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 2),
+                    child: Row(
+                      // `center` auto-positions the dot against the row
+                      // height that the [Expanded] text dictates — no
+                      // magic-number offset to track if the theme's
+                      // bodySmall metrics change.
+                      crossAxisAlignment: CrossAxisAlignment.center,
+                      children: [
+                        // Use a Material Icon rather than the Text bullet
+                        // glyph (•) so the marker renders at a stable
+                        // width across Roboto / SF / web font fallbacks.
+                        Icon(
+                          Icons.fiber_manual_record,
+                          size: 5,
+                          color: theme.colorScheme.onSurfaceVariant,
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            bullet,
+                            style: theme.textTheme.bodySmall?.copyWith(
+                              color: theme.colorScheme.onSurfaceVariant,
+                              height: 1.4,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+              ],
+            ),
+          ),
         ],
       ),
     );
   }
+}
+
+// ── About Feature ──
+
+/// Single icon-led row inside the About card. Mirrors the visual
+/// rhythm used by the How-to-Play `_HowToPlaySection` widget (small
+/// icon on the left, short label on the right) but without the bullet
+/// glyph — each feature is distinct enough to warrant its own
+/// recognisable icon, whereas How-to-Play bullets express the "list
+/// of rules under a topic" structure.
+///
+/// Keeping the row [const]-constructable allows the parent `Column`
+/// to declare a `const [...]` children list, matching how the
+/// How-to-Play sections above are laid out.
+class _AboutFeature extends StatelessWidget {
+  final IconData icon;
+  final String label;
+
+  const _AboutFeature({required this.icon, required this.label});
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Row(
+      // `center` auto-positions the icon against the row height set
+      // by the label text — same approach we settled on for the
+      // bullet dot in `_HowToPlaySection`, so the About card visually
+      // matches How-to-Play without any magic-number offset.
+      crossAxisAlignment: CrossAxisAlignment.center,
+      children: [
+        // ExcludeSemantics on the icon so TalkBack doesn't announce
+        // the icon glyph name (e.g. "local_offer rounded icon") as
+        // a prefix to the label. The Text below is the single
+        // meaningful semantic node for the row.
+        ExcludeSemantics(
+          child: Icon(icon, size: 16, color: theme.colorScheme.primary),
+        ),
+        const SizedBox(width: 8),
+        Expanded(
+          child: Text(
+            label,
+            style: theme.textTheme.bodySmall?.copyWith(
+              color: theme.colorScheme.onSurfaceVariant,
+              height: 1.4,
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+// ── Picker Bottom Sheet (shared) ──
+
+class _PickerOption<T> {
+  final T value;
+  final String label;
+  final String? subtitle;
+  final bool disabled;
+  const _PickerOption({
+    required this.value,
+    required this.label,
+    this.subtitle,
+    this.disabled = false,
+  });
+}
+
+/// Reusable bottom-sheet picker used by Scoring rule, Games, and
+/// Win Condition defaults. Saves screen real estate vs. a modal
+/// dialog and matches Material 3 mobile conventions where
+/// single-choice options appear in a draggable sheet.
+Future<T?> _showPickerBottomSheet<T>({
+  required BuildContext context,
+  required String title,
+  required T current,
+  required List<_PickerOption<T>> options,
+}) {
+  return showModalBottomSheet<T>(
+    context: context,
+    showDragHandle: true,
+    builder: (sheetCtx) {
+      final theme = Theme.of(sheetCtx);
+      return SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 4, 8, 4),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      title,
+                      style: theme.textTheme.titleMedium?.copyWith(
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                  ),
+                  IconButton(
+                    icon: const Icon(Icons.close_rounded),
+                    tooltip: 'Cancel',
+                    onPressed: () => Navigator.pop(sheetCtx),
+                  ),
+                ],
+              ),
+            ),
+            const Divider(height: 1),
+            for (final option in options)
+              RadioListTile<T>(
+                title: Text(option.label),
+                subtitle: option.subtitle != null ? Text(option.subtitle!) : null,
+                value: option.value,
+                groupValue: current,
+                onChanged: option.disabled
+                    ? null
+                    : (v) => Navigator.pop(sheetCtx, v),
+              ),
+          ],
+        ),
+      );
+    },
+  );
 }
 
 // ── Section Header ──

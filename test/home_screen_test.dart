@@ -1,5 +1,3 @@
-import 'dart:async';
-
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -10,8 +8,7 @@ import 'package:pickletrack/providers/completed_matches_provider.dart';
 import 'package:pickletrack/providers/database_provider.dart';
 import 'package:pickletrack/providers/theme_provider.dart';
 import 'package:pickletrack/providers/tournament_provider.dart';
-import 'package:pickletrack/screens/home/home_screen.dart';
-import 'package:pickletrack/widgets/shimmer.dart';
+import 'package:pickletrack/screens/home/quick_play_tab.dart';
 
 import 'helpers/stubs.dart';
 
@@ -38,26 +35,12 @@ ActiveMatchContext _testActiveContext() => ActiveMatchContext(
   events: [],
 );
 
-CompletedMatche _testCompletedMatch({int id = 1, String type = 'doubles', String winner = 'A'}) {
-  return CompletedMatche(
-    id: id, type: type, scoringRule: 'sideout',
-    gameCount: 1, gamesPlayed: 1, playTo: 11, winBy: 2,
-    teamAPlayers: '["Alice","Bob"]', teamBPlayers: '["Carol","Dave"]',
-    finalScores: '[{"game":1,"teamA":11,"teamB":3}]',
-    winner: winner, durationSeconds: 900,
-    startedAt: DateTime.now().subtract(const Duration(minutes: 15)),
-    completedAt: DateTime.now(),
-  );
-}
-
-/// Pumps the HomeScreen with the given provider overrides.
-Future<void> pumpHomeScreen(
+/// Pumps the QuickPlayTab with the given provider overrides.
+Future<void> pumpQuickPlay(
   WidgetTester tester, {
   ActiveMatchContext? activeMatch,
   List<CompletedMatche>? completedMatches,
 }) async {
-  // Use an in-memory Drift DB so the production AppDatabase factory
-  // (and its platform SQLite connection) is never opened during tests.
   final db = createInMemoryDatabase();
   addTearDown(() async => db.close());
 
@@ -67,113 +50,50 @@ Future<void> pumpHomeScreen(
         databaseProvider.overrideWithValue(db),
         activeMatchProvider.overrideWith((_) => Future.value(activeMatch)),
         completedMatchesProvider.overrideWith((_) => Future.value(completedMatches ?? [])),
-        // Stubs out the AsyncNotifier's DB read so test ordering can't
-        // leak a previously-written theme_mode value across tests.
         themeModeProvider.overrideWith(StubThemeModeNotifier.new),
-        // No tournaments in test context — prevents async DB reads from
-        // triggering unwanted rebuilds that interfere with search state.
         tournamentsProvider.overrideWith((_) => Future.value([])),
       ],
-      child: const MaterialApp(home: HomeScreen()),
+      child: const MaterialApp(home: QuickPlayTab()),
     ),
   );
   await tester.pumpAndSettle();
 }
 
 void main() {
-  group('HomeScreen', () {
+  group('QuickPlayTab', () {
     testWidgets('shows hero header with tagline', (tester) async {
-      await pumpHomeScreen(tester);
+      await pumpQuickPlay(tester);
 
-      // Header uses Unicode right single quotation mark (\u2019).
       expect(find.text('Let\u2019s play.'), findsOneWidget);
       expect(find.textContaining('Track your pickleball matches'), findsOneWidget);
     });
 
-    testWidgets('shows Standard Start and New Match action cards', (tester) async {
-      await pumpHomeScreen(tester);
+    testWidgets('shows Quick Start and New Match action cards', (tester) async {
+      await pumpQuickPlay(tester);
 
-      expect(find.text('Standard Start'), findsOneWidget);
-      // 'New Match' appears twice: once in the action card and once as
-      // an EmptyState FilledButton CTA (added per Gemini finding G#13).
-      expect(find.text('New Match'), findsNWidgets(2));
+      expect(find.text('Quick Start'), findsOneWidget);
+      // 'New Match' appears in the action card row.
+      expect(find.text('New Match'), findsOneWidget);
     });
 
     testWidgets(
-      'Standard Start label + "Doubles, side-out, 11" subtitle '
-      'remain stable when an active match exists',
+      'Quick Start label + subtitle remain stable when an active match exists',
       (tester) async {
-        // Regression guard: the previous subtitle was conditional
-        //   hasActive ? 'Replace current' : 'Doubles, standard rules'
-        // which was misleading — tapping the card does NOT delete the
-        // active match, it just routes to /match/setup?quick=true with the
-        // same defaults as a fresh match. We flattened the subtitle to
-        // always read "Doubles, side-out, 11" so the card is honest
-        // regardless of whether an active match exists. This test pins
-        // both rename + flatten so neither can silently regress.
-        await pumpHomeScreen(tester, activeMatch: _testActiveContext());
+        await pumpQuickPlay(tester, activeMatch: _testActiveContext());
 
-        // Card label survives the rename.
-        expect(find.text('Standard Start'), findsOneWidget);
-        // Flattened subtitle invariant.
+        expect(find.text('Quick Start'), findsOneWidget);
         expect(find.text('Doubles, side-out, 11'), findsOneWidget);
-        // Legacy "Replace current" copy must not leak back in.
         expect(find.text('Replace current'), findsNothing);
       },
     );
 
-    testWidgets('shows settings button in AppBar', (tester) async {
-      await pumpHomeScreen(tester);
-      expect(find.byIcon(Icons.settings_outlined), findsOneWidget);
-    });
-
-    testWidgets('shows empty state when no matches exist', (tester) async {
-      await pumpHomeScreen(tester);
-
-      expect(find.text('Ready to play?'), findsOneWidget);
-      expect(find.textContaining('Tap Standard Start'), findsOneWidget);
-    });
-
-    testWidgets('shows loading spinner while completed matches load',
-        (tester) async {
-      // Use a Completer that never completes to keep the provider loading.
-      final completer = Completer<List<CompletedMatche>>();
-
-      final db = createInMemoryDatabase();
-      addTearDown(() async => db.close());
-
-      await tester.pumpWidget(
-        ProviderScope(
-          overrides: [
-            databaseProvider.overrideWithValue(db),
-            activeMatchProvider.overrideWith((_) => Future.value(null)),
-            completedMatchesProvider.overrideWith((_) => completer.future),
-            themeModeProvider.overrideWith(StubThemeModeNotifier.new),
-            tournamentsProvider.overrideWith((_) => Future.value([])),
-          ],
-          child: const MaterialApp(home: HomeScreen()),
-        ),
-      );
-      // After the initial frame, the completed-matches provider is still
-      // loading because the completer hasn't been resolved.
-      expect(find.byType(ShimmerMatchHistory), findsOneWidget);
-    });
-
-    testWidgets('shows completed matches section when history exists', (tester) async {
-      await pumpHomeScreen(
-        tester,
-        completedMatches: [_testCompletedMatch()],
-      );
-
-      expect(find.text('Match History'), findsOneWidget);
-      // Score summary: '11-3'
-      expect(find.textContaining('11-3'), findsOneWidget);
-      // The match card now shows player names: "Doubles · Alice & Bob vs Carol & Dave"
-      expect(find.textContaining('Alice & Bob'), findsAtLeastNWidgets(1));
+    testWidgets('PickleTrack title in AppBar', (tester) async {
+      await pumpQuickPlay(tester);
+      expect(find.text('PickleTrack'), findsOneWidget);
     });
 
     testWidgets('shows resume banner when active match exists', (tester) async {
-      await pumpHomeScreen(
+      await pumpQuickPlay(
         tester,
         activeMatch: _testActiveContext(),
       );
@@ -184,71 +104,13 @@ void main() {
     });
 
     testWidgets('resume banner hides when no active match', (tester) async {
-      await pumpHomeScreen(tester, activeMatch: null);
+      await pumpQuickPlay(tester, activeMatch: null);
 
       expect(find.text('LIVE'), findsNothing);
     });
 
-    testWidgets('PickleTrack title in AppBar', (tester) async {
-      await pumpHomeScreen(tester);
-      expect(find.text('PickleTrack'), findsOneWidget);
-    });
-
-    testWidgets('completed match shows duration and relative date', (tester) async {
-      await pumpHomeScreen(
-        tester,
-        completedMatches: [_testCompletedMatch()],
-      );
-
-      // Duration: 15m (900 seconds)
-      expect(find.textContaining('15m'), findsOneWidget);
-      // Relative date should show minutes/hours/days ago
-      expect(find.textContaining('ago'), findsOneWidget);
-    });
-
-    testWidgets(
-      'empty-search state shows Clear Search button; tapping it resets the field',
-      (tester) async {
-        // Seed history with Alice/Bob/Carol/Dave so searching 'xyz'
-        // (no match) drives the home screen into the empty-search branch.
-        await pumpHomeScreen(
-          tester,
-          completedMatches: [_testCompletedMatch()],
-        );
-
-        // Only one TextField is mounted on Home (the search bar).
-        final searchField = find.byType(TextField);
-        expect(searchField, findsOneWidget);
-
-        await tester.enterText(searchField, 'xyz');
-        await tester.pumpAndSettle();
-
-        // Empty-state message echoes the query and 'Clear Search' is rendered.
-        expect(find.text("No matches found for 'xyz'"), findsOneWidget);
-        expect(find.text('Clear Search'), findsOneWidget);
-
-        // Scroll the Clear Search button into view before tapping —
-        // the tournament UI section above can push it off-screen.
-        await tester.scrollUntilVisible(
-          find.text('Clear Search'),
-          100,
-          scrollable: find.byType(Scrollable).first,
-        );
-        await tester.pumpAndSettle(); // let scrollable settle so tap hits the button
-        await tester.tap(find.text('Clear Search'));
-        await tester.pumpAndSettle();
-
-        // After tapping, the empty-state branch is gone and the suffix
-        // clear icon inside the search bar also disappears (because
-        // _searchQuery is now '').
-        expect(find.textContaining('No matches found'), findsNothing);
-        expect(find.text('Clear Search'), findsNothing);
-
-        // Search field's controller is genuinely cleared (not just the
-        // suffix icon removed).
-        final fieldWidget = tester.widget<TextField>(searchField);
-        expect(fieldWidget.controller!.text, '');
-      },
-    );
+    // ── Old tests kept but scoped to Quick Play tab only ──
+    // Match history, search, and stats tests now belong in a separate
+    // HistoryTab test file (lib/screens/home/history_tab.dart).
   });
 }

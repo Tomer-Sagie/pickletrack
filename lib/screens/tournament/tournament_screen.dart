@@ -58,12 +58,18 @@ class _TournamentScreenState extends ConsumerState<TournamentScreen> {
           child: Text(tournament?.name ?? 'Tournament'),
         ),
         actions: [
-          if (!_isLoading && !_hasError && tournament != null)
+          if (!_isLoading && !_hasError && tournament != null) ...[
+            IconButton(
+              icon: const Icon(Icons.edit_outlined),
+              tooltip: 'Edit Tournament',
+              onPressed: () => _openEditSheet(tournament),
+            ),
             IconButton(
               icon: const Icon(Icons.delete_outline_rounded),
               tooltip: 'Delete Tournament',
               onPressed: () => _confirmDelete(),
             ),
+          ],
         ],
       ),
       body: _buildBodyWithErrorHandling(theme),
@@ -386,6 +392,45 @@ class _TournamentScreenState extends ConsumerState<TournamentScreen> {
     }
   }
 
+  Future<void> _openEditSheet(TournamentData tournament) async {
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (ctx) => _EditTournamentSheet(
+        initialName: tournament.name,
+        initialPlayers:
+            tournament.players.map((p) => (seed: p.seed, name: p.name)).toList(),
+        onSave: (name, players) async {
+          final newPlayers = players
+              .map((p) => TournamentPlayer(
+                    name: p.name.trim().isEmpty
+                        ? 'Player ${p.seed}'
+                        : p.name.trim(),
+                    seed: p.seed,
+                  ))
+              .toList();
+          final success = await ref
+              .read(tournamentNotifierProvider(widget.tournamentId).notifier)
+              .updateMeta(name: name, players: newPlayers);
+          if (ctx.mounted) Navigator.of(ctx).pop();
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text(success
+                    ? 'Tournament updated'
+                    : 'Failed to update tournament'),
+              ),
+            );
+          }
+        },
+      ),
+    );
+  }
+
   Future<void> _confirmDelete() async {
     final confirmed = await showConfirmDialog(
       context,
@@ -402,6 +447,202 @@ class _TournamentScreenState extends ConsumerState<TournamentScreen> {
 
     if (!mounted) return;
     context.go('/');
+  }
+}
+
+// ── Edit Tournament Sheet ──
+
+/// Modal bottom sheet for editing tournament name + player names.
+/// Format / scoring / playTo / winBy are not editable after creation
+/// because they define the bracket structure.
+class _EditTournamentSheet extends StatefulWidget {
+  final String initialName;
+  final List<({int seed, String name})> initialPlayers;
+  final Future<void> Function(String name,
+      List<({int seed, String name})> players) onSave;
+
+  const _EditTournamentSheet({
+    required this.initialName,
+    required this.initialPlayers,
+    required this.onSave,
+  });
+
+  @override
+  State<_EditTournamentSheet> createState() => _EditTournamentSheetState();
+}
+
+class _EditTournamentSheetState extends State<_EditTournamentSheet> {
+  late final TextEditingController _nameController;
+  late final List<TextEditingController> _playerControllers;
+  bool _saving = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _nameController = TextEditingController(text: widget.initialName);
+    _playerControllers = widget.initialPlayers
+        .map((p) => TextEditingController(text: p.name))
+        .toList();
+  }
+
+  @override
+  void dispose() {
+    _nameController.dispose();
+    for (final c in _playerControllers) {
+      c.dispose();
+    }
+    super.dispose();
+  }
+
+  Future<void> _save() async {
+    final filledCount = _playerControllers
+        .where((c) => c.text.trim().isNotEmpty)
+        .length;
+    if (filledCount < 2) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('At least 2 player names are required.')),
+      );
+      return;
+    }
+    setState(() => _saving = true);
+    final players = <({int seed, String name})>[
+      for (var i = 0; i < _playerControllers.length; i++)
+        (seed: widget.initialPlayers[i].seed, name: _playerControllers[i].text),
+    ];
+    await widget.onSave(_nameController.text, players);
+    if (mounted) setState(() => _saving = false);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final mediaQuery = MediaQuery.of(context);
+    return Padding(
+      padding: EdgeInsets.only(
+        left: 20,
+        right: 20,
+        bottom: mediaQuery.viewInsets.bottom + 24,
+        top: 8,
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'Edit Tournament',
+            style: theme.textTheme.titleLarge?.copyWith(
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+          const SizedBox(height: 16),
+          TextField(
+            controller: _nameController,
+            decoration: const InputDecoration(
+              labelText: 'Tournament name',
+              prefixIcon: Icon(Icons.label_outline, size: 20),
+              isDense: true,
+            ),
+            textCapitalization: TextCapitalization.words,
+          ),
+          const SizedBox(height: 18),
+          Text(
+            'Player Names',
+            style: theme.textTheme.titleSmall
+                ?.copyWith(fontWeight: FontWeight.w600),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            'Renames cascade through the bracket.',
+            style: theme.textTheme.bodySmall?.copyWith(
+              color: theme.colorScheme.onSurfaceVariant,
+            ),
+          ),
+          const SizedBox(height: 10),
+          ConstrainedBox(
+            constraints: BoxConstraints(
+              maxHeight: mediaQuery.size.height * 0.45,
+            ),
+            child: SingleChildScrollView(
+              child: Column(
+                children: [
+                  for (var i = 0; i < _playerControllers.length; i++)
+                    Padding(
+                      padding: EdgeInsets.only(
+                          top: i > 0 ? 8 : 0),
+                      child: Row(
+                        children: [
+                          Container(
+                            width: 28,
+                            height: 28,
+                            decoration: BoxDecoration(
+                              color: i == 0
+                                  ? courtGreen.withValues(alpha: 0.15)
+                                  : theme.colorScheme.surfaceContainerHighest,
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                            alignment: Alignment.center,
+                            child: Text(
+                              '${widget.initialPlayers[i].seed}',
+                              style: theme.textTheme.labelMedium?.copyWith(
+                                fontWeight: FontWeight.w700,
+                                color: i == 0
+                                    ? courtGreen
+                                    : theme.colorScheme.onSurfaceVariant,
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: TextField(
+                              controller: _playerControllers[i],
+                              decoration: InputDecoration(
+                                labelText:
+                                    'Player ${widget.initialPlayers[i].seed}',
+                                prefixIcon: const Icon(
+                                  Icons.person_outline,
+                                  size: 18,
+                                ),
+                                isDense: true,
+                              ),
+                              textCapitalization: TextCapitalization.words,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(height: 18),
+          Row(
+            children: [
+              Expanded(
+                child: OutlinedButton(
+                  onPressed:
+                      _saving ? null : () => Navigator.of(context).pop(),
+                  child: const Text('Cancel'),
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: FilledButton.icon(
+                  onPressed: _saving ? null : _save,
+                  icon: _saving
+                      ? const SizedBox(
+                          width: 16,
+                          height: 16,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Icon(Icons.save_rounded),
+                  label: const Text('Save'),
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
   }
 }
 

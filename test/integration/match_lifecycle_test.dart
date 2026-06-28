@@ -117,13 +117,13 @@ void main() {
 
         // Score a few points (600 ms between taps -> clears the 500 ms
         // score-button debounce).
-        await tester.tap(find.widgetWithText(FilledButton, 'Team A'));
+        await tester.tap(find.widgetWithText(FilledButton, 'Alice & Bob'));
         await tester.pump(const Duration(milliseconds: 600));
 
-        await tester.tap(find.widgetWithText(FilledButton, 'Team B'));
+        await tester.tap(find.widgetWithText(FilledButton, 'Carol & Dave'));
         await tester.pump(const Duration(milliseconds: 600));
 
-        await tester.tap(find.widgetWithText(FilledButton, 'Team A'));
+        await tester.tap(find.widgetWithText(FilledButton, 'Alice & Bob'));
         await tester.pump(const Duration(milliseconds: 600));
 
         // Tap End Match -> confirmation dialog.
@@ -161,9 +161,10 @@ void main() {
         await tester.tap(find.byIcon(Icons.arrow_back_rounded));
         await pumpUntilFound(tester, find.byType(HomeScreen));
 
-        // -- Home Screen with Match History --
-        // completedMatchesProvider reloads asynchronously; poll for the header.
-        await pumpUntilFound(tester, find.text('Match History'));
+        // -- Home Screen --
+        // Match history is now on the separate History tab;
+        // verify we're back on Quick Play (hero header visible).
+        await pumpUntilFound(tester, find.text('PickleTrack'));
         expect(find.byType(HomeScreen), findsOneWidget);
 
         // The completed match card should reference the players.
@@ -180,13 +181,13 @@ void main() {
         // -- Home Screen --
         expect(find.byType(HomeScreen), findsOneWidget);
 
-        // Tap the "Standard Start" action card.
-        await tester.tap(find.text('Standard Start'));
+        // Tap the "Quick Start" action card.
+        await tester.tap(find.text('Quick Start'));
         await tester.pump(const Duration(milliseconds: 300));
         await tester.pump(const Duration(milliseconds: 200));
 
         // Bottom sheet appears with quick-start summary.
-        expect(find.text('Standard Start'), findsAtLeastNWidgets(1));
+        expect(find.text('Quick Start'), findsAtLeastNWidgets(1));
         // The bottom sheet has a FilledButton.icon with label "Start Match".
         expect(find.text('Start Match'), findsOneWidget);
 
@@ -201,13 +202,13 @@ void main() {
         await pumpUntilFound(tester, find.text('Player A1 serving'));
 
         // Score points.
-        await tester.tap(find.widgetWithText(FilledButton, 'Team A'));
+        await tester.tap(find.widgetWithText(FilledButton, 'Player A1 & Player A2'));
         await tester.pump(const Duration(milliseconds: 600));
 
-        await tester.tap(find.widgetWithText(FilledButton, 'Team A'));
+        await tester.tap(find.widgetWithText(FilledButton, 'Player A1 & Player A2'));
         await tester.pump(const Duration(milliseconds: 600));
 
-        await tester.tap(find.widgetWithText(FilledButton, 'Team B'));
+        await tester.tap(find.widgetWithText(FilledButton, 'Player B1 & Player B2'));
         await tester.pump(const Duration(milliseconds: 600));
 
         // End match via the bottom-bar button.
@@ -231,7 +232,9 @@ void main() {
         await pumpUntilFound(tester, find.byType(HomeScreen));
 
         // -- Home Screen --
-        await pumpUntilFound(tester, find.text('Match History'));
+        // Match history is now on the separate History tab;
+        // verify we're back on Quick Play.
+        await pumpUntilFound(tester, find.text('PickleTrack'));
         expect(find.byType(HomeScreen), findsOneWidget);
       },
     );

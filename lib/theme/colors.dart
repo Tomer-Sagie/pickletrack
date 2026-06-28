@@ -41,8 +41,8 @@ const Color errorDark = Color(0xFFFFB4AB);
 const Color outlineLight = Color(0xFF75786A);
 const Color outlineDark = Color(0xFF8E9283);
 
-// ── Court Diagram Accents ──
-const Color courtBlue = Color(0xFF2B5797);
-const Color courtGreen = Color(0xFF4A8C3F);
+// ── Court Diagram Accents (harmonized with primary #C8E030 palette) ──
+const Color courtBlue = Color(0xFF3949AB);
+const Color courtGreen = Color(0xFF6B8E23);
 const Color kitchenLine = Color(0xFF8B4513);
 const Color netColor = Color(0xFF333333);
