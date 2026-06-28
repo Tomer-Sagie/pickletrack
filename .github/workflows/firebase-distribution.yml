@@ -49,6 +49,20 @@ jobs:
           SA_JSON: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_JSON }}
         run: echo "$SA_JSON" > ./google-credentials.json
 
+      - name: Debug credentials file
+        run: |
+          FILE="./google-credentials.json"
+          echo "File exists: $(test -f $FILE && echo 'Yes' || echo 'No')"
+          echo "File size: $(wc -c < $FILE) bytes"
+          if jq -e . >/dev/null 2>&1 < "$FILE"; then
+            echo "Valid JSON format: Yes"
+            echo "JSON fields present:"
+            jq 'keys' "$FILE"
+          else
+            echo "Valid JSON format: No"
+            echo "First 50 chars: $(head -c 50 "$FILE")"
+          fi
+
       - name: Install Firebase CLI
         run: npm install -g firebase-tools
 
