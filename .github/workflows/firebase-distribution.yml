@@ -1,18 +1,20 @@
 # Build and distribute the Android APK to Firebase App Distribution.
 #
-# To enable:
-#   1. Add FIREBASE_APP_ID and FIREBASE_SERVICE_ACCOUNT_JSON as GitHub repository secrets
-#   2. Uncomment the 'push' trigger below
-#   3. Commit and push
+# Prerequisites:
+#   1. Create a service account in Google Cloud Console
+#   2. Give it "Firebase App Distribution Admin" role in Google Cloud IAM
+#   3. ADD IT TO FIREBASE CONSOLE: Project Settings → Users and permissions → Add member
+#      (paste the service account email, give "Firebase App Distribution Admin" role)
+#   4. Enable "Firebase App Distribution API" in Google Cloud Console → APIs & Services
+#   5. Download the service account JSON key
+#   6. Add FIREBASE_SERVICE_ACCOUNT_JSON as a GitHub repository secret
+#      (Settings → Secrets and variables → Actions → New repository secret)
 
 name: Firebase App Distribution
 
 on:
-  # Auto-distribute on every push to main:
   push:
     branches: [main]
-
-  # Manual trigger from GitHub Actions tab:
   workflow_dispatch:
     inputs:
       release_notes:
@@ -42,11 +44,17 @@ jobs:
       - name: Write release notes
         run: echo "${{ github.event.inputs.release_notes || 'Latest build from CI' }}" > release-notes.txt
 
+      - name: Authenticate with Google Cloud
+        run: |
+          echo '${{ secrets.FIREBASE_SERVICE_ACCOUNT_JSON }}' > ${{ runner.temp }}/google-credentials.json
+          echo "GOOGLE_APPLICATION_CREDENTIALS=${{ runner.temp }}/google-credentials.json" >> $GITHUB_ENV
+
+      - name: Install Firebase CLI
+        run: npm install -g firebase-tools
+
       - name: Upload to Firebase App Distribution
-        uses: wzieba/Firebase-Distribution-Github-Action@v1
-        with:
-          appId: 1:420306123685:android:0134c4202db844c1eb064c
-          serviceCredentialsFileContent: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_JSON }}
-          groups: qa-team
-          file: build/app/outputs/flutter-apk/app-release.apk
-          releaseNotesFile: release-notes.txt
+        run: |
+          firebase appdistribution:distribute build/app/outputs/flutter-apk/app-release.apk \
+            --app "1:420306123685:android:0134c4202db844c1eb064c" \
+            --groups "qa-team" \
+            --release-notes-file release-notes.txt
