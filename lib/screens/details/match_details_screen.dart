@@ -7,15 +7,21 @@ import '../../providers/match_detail_provider.dart';
 import '../../services/share_service.dart';
 import '../../theme/colors.dart';
 
-class MatchDetailsScreen extends ConsumerWidget {
+class MatchDetailsScreen extends ConsumerStatefulWidget {
   final int matchId;
-  late final _repaintKey = GlobalKey();
 
-  MatchDetailsScreen({super.key, required this.matchId});
+  const MatchDetailsScreen({super.key, required this.matchId});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final detail = ref.watch(matchDetailProvider(matchId));
+  ConsumerState<MatchDetailsScreen> createState() => _MatchDetailsScreenState();
+}
+
+class _MatchDetailsScreenState extends ConsumerState<MatchDetailsScreen> {
+  final _repaintKey = GlobalKey();
+
+  @override
+  Widget build(BuildContext context) {
+    final detail = ref.watch(matchDetailProvider(widget.matchId));
     final theme = Theme.of(context);
 
     return Scaffold(
@@ -34,7 +40,10 @@ class MatchDetailsScreen extends ConsumerWidget {
             }
           },
         ),
-        title: const Text('Match Details'),
+        title: Semantics(
+          header: true,
+          child: const Text('Match Details'),
+        ),
         actions: [
           // Explicit Home shortcut — useful when Match Details was reached
           // from a deep stack (Live → Details on background tab), where the
@@ -88,6 +97,12 @@ class MatchDetailsScreen extends ConsumerWidget {
               Text('Failed to load match', style: theme.textTheme.titleMedium),
               const SizedBox(height: 4),
               Text(e.toString(), style: theme.textTheme.bodySmall?.copyWith(color: theme.colorScheme.outline)),
+              const SizedBox(height: 16),
+              FilledButton.icon(
+                onPressed: () => ref.invalidate(matchDetailProvider(widget.matchId)),
+                icon: const Icon(Icons.refresh_rounded),
+                label: const Text('Retry'),
+              ),
             ],
           ),
         ),
@@ -299,12 +314,19 @@ class MatchDetailsScreen extends ConsumerWidget {
       return const SizedBox.shrink();
     }
 
+    // Group events by game number so we can render game headers.
+    final eventsByGame = <int, List<MatchEventLogData>>{};
+    for (final event in ctx.eventLog) {
+      eventsByGame.putIfAbsent(event.gameNumber, () => []).add(event);
+    }
+    final sortedGames = eventsByGame.keys.toList()..sort();
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Padding(
           padding: const EdgeInsets.only(left: 4, bottom: 8),
-          child: Text('Event Log', style: theme.textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w600)),
+          child: Text('Play-by-Play', style: theme.textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w600)),
         ),
         Card(
           elevation: 0,
@@ -312,9 +334,21 @@ class MatchDetailsScreen extends ConsumerWidget {
           child: Padding(
             padding: const EdgeInsets.symmetric(vertical: 4),
             child: Column(
-              children: ctx.eventLog.reversed.map((event) {
-                return _EventLogTile(event: event, theme: theme);
-              }).toList(),
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                for (final gameNum in sortedGames) ...[
+                  // Game header
+                  _GameLogHeader(gameNumber: gameNum, theme: theme),
+                  // Events for this game in chronological order
+                  ...eventsByGame[gameNum]!.map((event) {
+                    return RepaintBoundary(
+                      child: _EventLogTile(event: event, theme: theme),
+                    );
+                  }),
+                  if (gameNum != sortedGames.last)
+                    const Divider(height: 1, indent: 14, endIndent: 14),
+                ],
+              ],
             ),
           ),
         ),
@@ -421,6 +455,45 @@ class _InfoRow extends StatelessWidget {
           Text(label, style: theme.textTheme.bodyMedium?.copyWith(color: theme.colorScheme.onSurfaceVariant)),
           const Spacer(),
           Text(value, style: theme.textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.w600)),
+        ],
+      ),
+    );
+  }
+}
+
+class _GameLogHeader extends StatelessWidget {
+  final int gameNumber;
+  final ThemeData theme;
+
+  const _GameLogHeader({required this.gameNumber, required this.theme});
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(14, 10, 14, 4),
+      child: Row(
+        children: [
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+            decoration: BoxDecoration(
+              color: theme.colorScheme.primaryContainer,
+              borderRadius: BorderRadius.circular(6),
+            ),
+            child: Text(
+              'Game $gameNumber',
+              style: theme.textTheme.labelSmall?.copyWith(
+                fontWeight: FontWeight.w800,
+                color: theme.colorScheme.onPrimaryContainer,
+              ),
+            ),
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Container(
+              height: 1,
+              color: theme.colorScheme.outlineVariant,
+            ),
+          ),
         ],
       ),
     );

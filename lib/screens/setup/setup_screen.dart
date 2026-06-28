@@ -254,7 +254,12 @@ class _SetupScreenState extends ConsumerState<SetupScreen> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     return Scaffold(
-      appBar: AppBar(title: const Text('New Match')),
+      appBar: AppBar(
+        title: Semantics(
+          header: true,
+          child: const Text('New Match'),
+        ),
+      ),
       body: PopScope(
         canPop: false,
         onPopInvokedWithResult: (didPop, result) async {
@@ -298,7 +303,10 @@ class _SetupScreenState extends ConsumerState<SetupScreen> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        _SectionLabel(icon: Icons.sports_tennis_rounded, label: 'Match Type', theme: theme),
+        Semantics(
+          header: true,
+          child: _SectionLabel(icon: Icons.sports_tennis_rounded, label: 'Match Type', theme: theme),
+        ),
         const SizedBox(height: 8),
         SegmentedButton<String>(
           segments: const [
@@ -318,11 +326,17 @@ class _SetupScreenState extends ConsumerState<SetupScreen> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        _SectionLabel(icon: Icons.group_rounded, label: 'Team A', theme: theme, accentColor: courtGreen),
+        Semantics(
+          header: true,
+          child: _SectionLabel(icon: Icons.group_rounded, label: 'Team A', theme: theme, accentColor: courtGreen),
+        ),
         const SizedBox(height: 8),
         ..._buildTeamFields('A', _teamAControllers, theme),
         const SizedBox(height: 20),
-        _SectionLabel(icon: Icons.group_rounded, label: 'Team B', theme: theme, accentColor: courtBlue),
+        Semantics(
+          header: true,
+          child: _SectionLabel(icon: Icons.group_rounded, label: 'Team B', theme: theme, accentColor: courtBlue),
+        ),
         const SizedBox(height: 8),
         ..._buildTeamFields('B', _teamBControllers, theme),
       ],
@@ -338,7 +352,7 @@ class _SetupScreenState extends ConsumerState<SetupScreen> {
           controller: controllers[i],
           focusNode: _focusNodes[focusOffset + i],
           hint: team == 'A' ? 'Player A${i + 1}' : 'Player B${i + 1}',
-          onChanged: null,
+          onChanged: () => setState(() {}),
           theme: theme,
         ),
       );
@@ -350,7 +364,10 @@ class _SetupScreenState extends ConsumerState<SetupScreen> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        _SectionLabel(icon: Icons.sports_baseball_rounded, label: 'Starting Server', theme: theme),
+        Semantics(
+          header: true,
+          child: _SectionLabel(icon: Icons.sports_baseball_rounded, label: 'Starting Server', theme: theme),
+        ),
         const SizedBox(height: 8),
         Wrap(
           spacing: 8, runSpacing: 4,
@@ -378,7 +395,10 @@ class _SetupScreenState extends ConsumerState<SetupScreen> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        _SectionLabel(icon: Icons.rule_rounded, label: 'Scoring Rule', theme: theme),
+        Semantics(
+          header: true,
+          child: _SectionLabel(icon: Icons.rule_rounded, label: 'Scoring Rule', theme: theme),
+        ),
         const SizedBox(height: 8),
         SegmentedButton<String>(
           segments: const [
@@ -396,7 +416,10 @@ class _SetupScreenState extends ConsumerState<SetupScreen> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        _SectionLabel(icon: Icons.casino_rounded, label: 'Games', theme: theme),
+        Semantics(
+          header: true,
+          child: _SectionLabel(icon: Icons.casino_rounded, label: 'Games', theme: theme),
+        ),
         const SizedBox(height: 8),
         SegmentedButton<int>(
           segments: const [
@@ -414,7 +437,10 @@ class _SetupScreenState extends ConsumerState<SetupScreen> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        _SectionLabel(icon: Icons.emoji_events_rounded, label: 'Win Condition', theme: theme),
+        Semantics(
+          header: true,
+          child: _SectionLabel(icon: Icons.emoji_events_rounded, label: 'Win Condition', theme: theme),
+        ),
         const SizedBox(height: 8),
         DropdownButtonFormField<ScoringPreset>(
           value: _isCustomPreset ? null : _selectedPreset,
@@ -536,10 +562,14 @@ class _PlayerNameField extends StatefulWidget {
 
 class _PlayerNameFieldState extends State<_PlayerNameField> {
   Timer? _debounce;
+  Completer<List<String>>? _activeCompleter;
 
   @override
   void dispose() {
     _debounce?.cancel();
+    if (_activeCompleter?.isCompleted == false) {
+      _activeCompleter!.complete(const []);
+    }
     super.dispose();
   }
 
@@ -548,13 +578,22 @@ class _PlayerNameFieldState extends State<_PlayerNameField> {
     return Autocomplete<String>(
       optionsBuilder: (textEditingValue) {
         _debounce?.cancel();
+        // Cancel any previous pending search so orphaned completers
+        // don't leak or complete after disposal.
+        if (_activeCompleter?.isCompleted == false) {
+          _activeCompleter!.complete(const []);
+        }
 
         if (textEditingValue.text.isEmpty) return Future.value(const []);
 
         final completer = Completer<List<String>>();
+        _activeCompleter = completer;
         _debounce = Timer(const Duration(milliseconds: 200), () async {
           try {
-            if (!mounted) return;
+            if (!mounted) {
+              if (!completer.isCompleted) completer.complete(const []);
+              return;
+            }
             final container = ProviderScope.containerOf(context);
             final db = container.read(databaseProvider);
             final recent = await db.getRecentPlayers();
@@ -580,25 +619,23 @@ class _PlayerNameFieldState extends State<_PlayerNameField> {
         widget.onChanged?.call();
       },
       fieldViewBuilder: (context, textEditingController, focusNode, onSubmitted) {
-        textEditingController.text = widget.controller.text;
-        textEditingController.addListener(() {
-          if (widget.controller.text != textEditingController.text) {
-            widget.controller.text = textEditingController.text;
-            widget.onChanged?.call();
-          }
-        });
+        // Sync the inner controller once on build.
+        final initialText = widget.controller.text;
+        if (textEditingController.text != initialText) {
+          textEditingController.text = initialText;
+        }
         return TextFormField(
           controller: textEditingController,
           focusNode: focusNode,
-          // labelText doubles as the accessibility label (screen readers
-          // announce the floating label) and also serves as the inline
-          // placeholder when the field is empty, so we don't need both
-          // hintText + labelText.
           decoration: InputDecoration(
             labelText: widget.hint,
             prefixIcon: const Icon(Icons.person_outline, size: 20),
           ),
           textCapitalization: TextCapitalization.words,
+          onChanged: (value) {
+            widget.controller.text = value;
+            widget.onChanged?.call();
+          },
         );
       },
     );

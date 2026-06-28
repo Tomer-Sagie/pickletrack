@@ -112,6 +112,7 @@ class ShareService {
 
       final image = await boundary.toImage(pixelRatio: 3.0);
       final byteData = await image.toByteData(format: ui.ImageByteFormat.png);
+      image.dispose();
       if (byteData == null) return;
 
       final pngBytes = byteData.buffer.asUint8List();

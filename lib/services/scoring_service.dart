@@ -49,9 +49,11 @@ class MatchState {
     this.firstServerTeam,
   });
 
-  /// The score callout string (e.g., "3-2-1" for doubles, "3-2" for singles).
+  /// The score callout string (e.g., "3-2-1" for doubles side-out, "3-2" for singles or rally).
   String get scoreCallout {
-    if (type == MatchType.doubles) {
+    // Server number only applies to side-out scoring; in rally scoring
+    // the serve rotates every point and server number is not meaningful.
+    if (type == MatchType.doubles && rule == ScoringRule.sideout) {
       return '$teamAScore-$teamBScore-$serverNumber';
     }
     return '$teamAScore-$teamBScore';
@@ -233,7 +235,8 @@ class ScoringService {
       );
     } else {
       // Non-serving team — side-out (no point scored)
-      return _handleSideOut(state);
+      final winningTeam = state.serverTeam == 'A' ? 'B' : 'A';
+      return _handleSideOut(state, winningTeam: winningTeam);
     }
   }
 
@@ -251,7 +254,7 @@ class ScoringService {
 
     // If the non-serving team scored, side-out (full side-out in rally scoring)
     if (scoringTeam != servingTeam) {
-      newState = _handleSideOut(newState, forceFullSideOut: true).newState;
+      newState = _handleSideOut(newState, forceFullSideOut: true, winningTeam: scoringTeam == Team.A ? 'A' : 'B').newState;
 
       // Check for game end
       if (newState.isGameOver) {
@@ -294,7 +297,7 @@ class ScoringService {
   /// Also used by rally scoring when non-server scores — but in that case
   /// we force a full side-out regardless of server number.
   static ScoreResult _handleSideOut(MatchState state,
-      {bool forceFullSideOut = false}) {
+      {bool forceFullSideOut = false, String? winningTeam}) {
     if (state.type == MatchType.singles) {
       final newTeam = state.serverTeam == 'A' ? 'B' : 'A';
       // In singles, the new server serves from the right if their score is even
@@ -306,6 +309,7 @@ class ScoringService {
           serverSide: newServerScore.isEven ? 'right' : 'left',
         ),
         eventType: 'sideout',
+        scorerTeam: winningTeam,
         description: 'Side out — Team $newTeam serving',
       );
     }
@@ -325,6 +329,7 @@ class ScoringService {
           serverSide: partnerSide,
         ),
         eventType: 'sideout',
+        scorerTeam: winningTeam,
         description: 'Server 1 out — Server 2 serving',
       );
     } else {
@@ -342,6 +347,7 @@ class ScoringService {
           serverSide: newServerSide,
         ),
         eventType: 'sideout',
+        scorerTeam: winningTeam,
         description: 'Side out — Team $newTeam serving',
       );
     }

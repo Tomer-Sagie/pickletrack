@@ -18,6 +18,7 @@ part 'database.g.dart';
     MatchEventLog,
     RecentPlayers,
     AppSettings,
+    Tournaments,
   ],
 )
 class AppDatabase extends _$AppDatabase {
@@ -31,7 +32,7 @@ class AppDatabase extends _$AppDatabase {
   AppDatabase.forTesting(super.executor);
 
   @override
-  int get schemaVersion => 1;
+  int get schemaVersion => 2;
 
   /// Schema-migration strategy.
   ///
@@ -47,9 +48,12 @@ class AppDatabase extends _$AppDatabase {
           await m.createAll();
         },
         onUpgrade: (m, from, to) async {
-          // Reserved for future schema migrations. When bumping
-          // schemaVersion, add m.addColumn / m.createTable / etc.
-          // for each incremental step here.
+          if (from < 2) {
+            // v2: Add tournament tables + tournament columns on active_matches
+            await m.createTable(tournaments);
+            await m.addColumn(activeMatches, activeMatches.tournamentId);
+            await m.addColumn(activeMatches, activeMatches.tournamentMatchId);
+          }
         },
         beforeOpen: (details) async {
           await customStatement('PRAGMA foreign_keys = ON');
@@ -59,6 +63,8 @@ class AppDatabase extends _$AppDatabase {
   // ── Active Match Queries ──
 
   /// Creates a new active match with players. Returns the match ID.
+  /// If [tournamentId] and [tournamentMatchId] are provided, the match
+  /// is linked to a tournament bracket match.
   Future<int> createMatch({
     required String type,
     required String scoringRule,
@@ -66,6 +72,8 @@ class AppDatabase extends _$AppDatabase {
     required int playTo,
     required int winBy,
     required List<({String name, String team, bool isStartingServer, String? position})> players,
+    int? tournamentId,
+    int? tournamentMatchId,
   }) async {
     return transaction(() async {
       final matchId = await into(activeMatches).insert(
@@ -77,6 +85,8 @@ class AppDatabase extends _$AppDatabase {
           winBy: Value(winBy),
           createdAt: DateTime.now(),
           status: const Value('live'),
+          tournamentId: Value(tournamentId),
+          tournamentMatchId: Value(tournamentMatchId),
         ),
       );
 
@@ -159,33 +169,41 @@ class AppDatabase extends _$AppDatabase {
   }
 
   /// Upserts a player name and prunes the list to 20.
+  ///
+  /// Wrapped in a [transaction] so concurrent calls never race on the
+  /// read-then-write path (both seeing `existing == null` and trying
+  /// to insert, which would crash with a unique-constraint violation).
   Future<void> recordPlayer(String name) async {
-    final existing = await (select(recentPlayers)
-          ..where((p) => p.name.equals(name)))
-        .getSingleOrNull();
-
-    if (existing != null) {
-      await (update(recentPlayers)
+    await transaction(() async {
+      final existing = await (select(recentPlayers)
             ..where((p) => p.name.equals(name)))
-          .write(RecentPlayersCompanion(
-        lastUsed: Value(DateTime.now()),
-        usageCount: Value(existing.usageCount + 1),
-      ));
-    } else {
-      await into(recentPlayers).insert(RecentPlayersCompanion.insert(
-        name: name,
-        lastUsed: DateTime.now(),
-      ));
-    }
+          .getSingleOrNull();
 
-    // Prune to 20 — delete all but the 20 most recent.
-    final all = await (select(recentPlayers)
-          ..orderBy([(p) => OrderingTerm.desc(p.lastUsed)]))
-        .get();
-    if (all.length > 20) {
-      final toDelete = all.sublist(20).map((p) => p.name);
-      await (delete(recentPlayers)..where((p) => p.name.isIn(toDelete))).go();
-    }
+      if (existing != null) {
+        await (update(recentPlayers)
+              ..where((p) => p.name.equals(name)))
+            .write(RecentPlayersCompanion(
+          lastUsed: Value(DateTime.now()),
+          usageCount: Value(existing.usageCount + 1),
+        ));
+      } else {
+        await into(recentPlayers).insertOnConflictUpdate(
+          RecentPlayersCompanion.insert(
+            name: name,
+            lastUsed: DateTime.now(),
+          ),
+        );
+      }
+
+      // Prune to 20 — delete all but the 20 most recent.
+      final all = await (select(recentPlayers)
+            ..orderBy([(p) => OrderingTerm.desc(p.lastUsed)]))
+          .get();
+      if (all.length > 20) {
+        final toDelete = all.sublist(20).map((p) => p.name);
+        await (delete(recentPlayers)..where((p) => p.name.isIn(toDelete))).go();
+      }
+    });
   }
 
   // ── Settings ──
@@ -203,6 +221,76 @@ class AppDatabase extends _$AppDatabase {
     await into(appSettings).insertOnConflictUpdate(
       AppSettingsCompanion.insert(key: key, value: value),
     );
+  }
+
+  // ── Tournament Queries ──
+
+  /// Creates a new tournament and returns its ID.
+  Future<int> createTournament({
+    required String name,
+    required String format,
+    required String type,
+    required String scoringRule,
+    required int playTo,
+    required int winBy,
+    required int gameCount,
+    required String playersJson,
+    String? bracketJson,
+  }) async {
+    return into(tournaments).insert(
+      TournamentsCompanion.insert(
+        name: name,
+        format: format,
+        type: type,
+        scoringRule: scoringRule,
+        playTo: Value(playTo),
+        winBy: Value(winBy),
+        gameCount: Value(gameCount),
+        status: const Value('in_progress'),
+        playersJson: playersJson,
+        bracketJson: Value(bracketJson),
+        createdAt: DateTime.now(),
+      ),
+    );
+  }
+
+  /// Returns all tournaments, most recent first.
+  Future<List<Tournament>> getTournaments() {
+    return (select(tournaments)
+          ..orderBy([(t) => OrderingTerm.desc(t.createdAt)]))
+        .get();
+  }
+
+  /// Returns a single tournament by ID.
+  Future<Tournament?> getTournament(int id) {
+    return (select(tournaments)..where((t) => t.id.equals(id)))
+        .getSingleOrNull();
+  }
+
+  /// Updates the bracket JSON and status for a tournament.
+  Future<void> updateTournamentBracket({
+    required int tournamentId,
+    required String bracketJson,
+    String? status,
+    String? finalRankingsJson,
+    DateTime? completedAt,
+  }) async {
+    await (update(tournaments)..where((t) => t.id.equals(tournamentId)))
+        .write(TournamentsCompanion(
+      bracketJson: Value(bracketJson),
+      status: status != null ? Value(status) : const Value.absent(),
+      finalRankingsJson: finalRankingsJson != null
+          ? Value(finalRankingsJson)
+          : const Value.absent(),
+      completedAt: completedAt != null
+          ? Value(completedAt)
+          : const Value.absent(),
+    ));
+  }
+
+  /// Deletes a tournament by ID.
+  Future<void> deleteTournament(int id) async {
+    await (delete(tournaments)..where((t) => t.id.equals(id))).go();
   }
 
   // ── Match Completion ──

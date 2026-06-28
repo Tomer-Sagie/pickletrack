@@ -19,6 +19,14 @@ class ActiveMatches extends Table {
   TextColumn get status => text()
       .withDefault(const Constant('setup'))
       .check(status.equals('setup') | status.equals('live') | status.equals('paused'))();
+  /// If this match is part of a tournament, the tournament ID. Null for
+  /// standalone matches.
+  IntColumn get tournamentId =>
+      integer().named('tournament_id').nullable()();
+  /// The bracket match ID within the tournament (maps to BracketMatch.id
+  /// in the tournament's bracket JSON). Null for standalone matches.
+  IntColumn get tournamentMatchId =>
+      integer().named('tournament_match_id').nullable()();
 }
 
 /// Players in the active match (2 or 4 rows).
@@ -114,4 +122,46 @@ class AppSettings extends Table {
 
   @override
   Set<Column> get primaryKey => {key};
+}
+
+// ════════════════════════════════════════════════════════════
+//  TOURNAMENT TABLES
+// ════════════════════════════════════════════════════════════
+
+/// Tournaments (single elim, double elim, round robin).
+class Tournaments extends Table {
+  IntColumn get id => integer().autoIncrement()();
+  TextColumn get name => text()();
+  TextColumn get format => text()
+      .check(format.equals('single_elim') |
+          format.equals('double_elim') |
+          format.equals('round_robin'))();
+  TextColumn get type =>
+      text().check(type.equals('singles') | type.equals('doubles'))();
+  TextColumn get scoringRule => text()
+      .named('scoring_rule')
+      .check(scoringRule.equals('sideout') | scoringRule.equals('rally'))();
+  IntColumn get playTo =>
+      integer().named('play_to').withDefault(const Constant(11))();
+  IntColumn get winBy =>
+      integer().named('win_by').withDefault(const Constant(2))();
+  IntColumn get gameCount =>
+      integer().named('game_count').withDefault(const Constant(1))();
+  TextColumn get status => text()
+      .withDefault(const Constant('setup'))
+      .check(status.equals('setup') |
+          status.equals('in_progress') |
+          status.equals('completed'))();
+  /// JSON array of TournamentPlayer objects.
+  TextColumn get playersJson =>
+      text().named('players_json')();
+  /// JSON-serialized TournamentBracket.
+  TextColumn get bracketJson =>
+      text().named('bracket_json').nullable()();
+  /// JSON array of final rankings (TournamentPlayer with finalRanking).
+  TextColumn get finalRankingsJson =>
+      text().named('final_rankings_json').nullable()();
+  DateTimeColumn get createdAt => dateTime().named('created_at')();
+  DateTimeColumn get completedAt =>
+      dateTime().named('completed_at').nullable()();
 }

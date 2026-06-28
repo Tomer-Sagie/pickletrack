@@ -115,6 +115,10 @@ void main() {
 
     testWidgets('Standard Start (quickStart=true) pre-fills player names', (tester) async {
       await pumpSetupScreen(tester, quickStart: true);
+      // Let the Autocomplete debounce timers fire and the overlay
+      // state settle before the test ends — avoids a framework
+      // assertion in OverlayPortalController.hide during teardown.
+      await tester.pump(const Duration(milliseconds: 300));
 
       // The internal quickStart flag seeds default names so the
       // Starting Server section renders immediately.

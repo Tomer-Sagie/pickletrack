@@ -20,6 +20,10 @@ dependencies:
   audioplayers: ^6.6.0
   audioplayers_web: ^5.2.0
   sqlite3_flutter_libs: ^0.5.42
+  wakelock_plus: ^1.4.0
+  cupertino_icons: ^1.0.8
+  firebase_core: ^3.0.0
+  firebase_crashlytics: ^4.0.0
 
 dev_dependencies:
   flutter_test:
@@ -28,8 +32,20 @@ dev_dependencies:
   build_runner: ^2.4.0
   flutter_lints: ^5.0.0
   mocktail: ^1.0.0
+  flutter_launcher_icons: ^0.14.0
+  image: ^4.5.0
 
 flutter:
   uses-material-design: true
   assets:
     - assets/sounds/
+
+# Run `dart run flutter_launcher_icons` to regenerate icons after
+# changing the image_path or adaptive icon assets.
+flutter_launcher_icons:
+  android: true
+  ios: true
+  image_path: "assets/icon/icon.png"
+  adaptive_icon_background: "#C8E030"
+  adaptive_icon_foreground: "assets/icon/icon_fg.png"
+  min_sdk_android: 21

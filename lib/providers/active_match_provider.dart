@@ -39,6 +39,8 @@ final activeMatchProvider =
 });
 
 /// Creates a new match in the database and returns the match ID.
+/// If [tournamentId] and [tournamentMatchId] are provided, the match
+/// is linked to a tournament bracket match.
 Future<int> createMatchInDb({
   required WidgetRef ref,
   required String type,
@@ -47,17 +49,23 @@ Future<int> createMatchInDb({
   required int playTo,
   required int winBy,
   required List<({String name, String team, bool isStartingServer, String? position})> players,
+  int? tournamentId,
+  int? tournamentMatchId,
 }) async {
   final db = ref.read(databaseProvider);
 
   // Guard: only one active match is allowed. If a stale row exists
   // (e.g. from a crash before cleanup), clear it before creating the
   // new one so we never have multiple active matches in the DB.
+  // Wrapped in a transaction so partial failures can't leave orphan
+  // rows (e.g. players deleted but score events left behind).
   final existing = await db.getActiveMatch();
   if (existing != null) {
-    await db.delete(db.activeMatchPlayers).go();
-    await db.delete(db.activeMatches).go();
-    await db.delete(db.scoreEvents).go();
+    await db.transaction(() async {
+      await db.delete(db.activeMatchPlayers).go();
+      await db.delete(db.scoreEvents).go();
+      await db.delete(db.activeMatches).go();
+    });
   }
 
   final matchId = await db.createMatch(
@@ -67,6 +75,8 @@ Future<int> createMatchInDb({
     playTo: playTo,
     winBy: winBy,
     players: players,
+    tournamentId: tournamentId,
+    tournamentMatchId: tournamentMatchId,
   );
 
   // Record player names — but skip auto-generated defaults like

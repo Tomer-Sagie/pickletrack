@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:wakelock_plus/wakelock_plus.dart';
 
 import '../../providers/database_provider.dart';
 import '../../providers/live_match_provider.dart';
@@ -12,6 +13,7 @@ import '../../services/sound_service.dart';
 import '../../theme/colors.dart';
 import '../../widgets/confirm_dialog.dart';
 import 'court_diagram.dart';
+import 'tutorial_overlay.dart';
 
 class LiveMatchScreen extends ConsumerStatefulWidget {
   const LiveMatchScreen({super.key});
@@ -33,14 +35,16 @@ class _LiveMatchScreenState extends ConsumerState<LiveMatchScreen> {
   Timer? _glowTimerA;
   Timer? _glowTimerB;
   bool _hapticEnabled = true;
-  Timer? _elapsedTimer;
-  String _elapsedStr = '00:00';
-  bool _elapsedStarted = false; // flag to start timer once after load
+  bool _showTutorial = false;
+  String? _sideOutMessage;
+  Timer? _sideOutTimer;
 
   @override
   void initState() {
     super.initState();
+    WakelockPlus.enable().catchError((_) {});
     _loadPrefs();
+    _checkTutorial();
     Future.microtask(() async {
       try {
         await ref.read(liveMatchProvider.notifier).load();
@@ -49,6 +53,24 @@ class _LiveMatchScreenState extends ConsumerState<LiveMatchScreen> {
       }
       if (mounted) setState(() => _loading = false);
     });
+  }
+
+  Future<void> _checkTutorial() async {
+    try {
+      final db = ref.read(databaseProvider);
+      final seen = await db.getSetting('has_seen_tutorial');
+      if (mounted && seen != 'true') {
+        setState(() => _showTutorial = true);
+      }
+    } catch (_) {}
+  }
+
+  Future<void> _dismissTutorial() async {
+    setState(() => _showTutorial = false);
+    try {
+      final db = ref.read(databaseProvider);
+      await db.setSetting('has_seen_tutorial', 'true');
+    } catch (_) {}
   }
 
   Future<void> _loadPrefs() async {
@@ -61,19 +83,24 @@ class _LiveMatchScreenState extends ConsumerState<LiveMatchScreen> {
 
   @override
   void dispose() {
+    WakelockPlus.disable().catchError((_) {});
     _glowTimerA?.cancel();
     _glowTimerB?.cancel();
-    _elapsedTimer?.cancel();
+    _sideOutTimer?.cancel();
     super.dispose();
   }
 
   void _onTeamScore(Team team) {
     final now = DateTime.now();
     if (_lastScoreTime != null &&
-        now.difference(_lastScoreTime!).inMilliseconds < 500) {
+        now.difference(_lastScoreTime!).inMilliseconds < 300) {
       return;
     }
     _lastScoreTime = now;
+
+    final liveState = ref.read(liveMatchProvider);
+    final wasServing = liveState?.isTeamServing(team) ?? false;
+    final isSideOut = liveState != null && liveState.isSideOut && !wasServing;
 
     if (team == Team.A) {
       _glowTimerA?.cancel();
@@ -91,7 +118,20 @@ class _LiveMatchScreenState extends ConsumerState<LiveMatchScreen> {
     }
 
     ref.read(liveMatchProvider.notifier).scorePoint(team);
-    SoundService().playPointScored();
+
+    // Show side-out feedback in side-out scoring when non-serving team wins rally
+    if (isSideOut) {
+      final otherTeam = team == Team.A ? 'Team A' : 'Team B';
+      _sideOutTimer?.cancel();
+      setState(() => _sideOutMessage = '$otherTeam won the rally — Side Out!');
+      _sideOutTimer = Timer(const Duration(seconds: 2), () {
+        if (mounted) setState(() => _sideOutMessage = null);
+      });
+      SoundService().playPointScored();
+    } else {
+      SoundService().playPointScored();
+    }
+
     if (_hapticEnabled) {
       HapticFeedback.lightImpact();
     }
@@ -104,6 +144,7 @@ class _LiveMatchScreenState extends ConsumerState<LiveMatchScreen> {
   Future<void> _onEndMatch() async {
     final state = ref.read(liveMatchProvider);
     if (state == null) return;
+    final isTournamentMatch = state.match.tournamentId != null;
     final confirmed = await showConfirmDialog(
       context,
       title: 'End Match',
@@ -116,8 +157,12 @@ class _LiveMatchScreenState extends ConsumerState<LiveMatchScreen> {
       final completedId =
           await ref.read(liveMatchProvider.notifier).endMatch();
       if (completedId != null && mounted) {
-        context.go('/');
-        context.push('/match/$completedId');
+        if (isTournamentMatch && state.match.tournamentId != null) {
+          context.go('/tournament/${state.match.tournamentId}');
+        } else {
+          context.go('/');
+          context.push('/match/$completedId');
+        }
       }
     } catch (e) {
       if (mounted) {
@@ -128,7 +173,7 @@ class _LiveMatchScreenState extends ConsumerState<LiveMatchScreen> {
     }
   }
 
-  void _checkGameEnd(LiveMatchState? prev, LiveMatchState next) {
+  void _checkGameEnd(LiveMatchState prev, LiveMatchState next) {
     if (!_initialLoadDone) {
       _prevGamesWonA = next.teamAGamesWon;
       _prevGamesWonB = next.teamBGamesWon;
@@ -138,8 +183,17 @@ class _LiveMatchScreenState extends ConsumerState<LiveMatchScreen> {
 
     if (_showingBanner) return;
 
+    // Dismiss side-out message when a point is actually scored (scores changed)
+    if (next.teamAScore != prev.teamAScore || next.teamBScore != prev.teamBScore) {
+      _sideOutTimer?.cancel();
+      if (mounted && _sideOutMessage != null) {
+        setState(() => _sideOutMessage = null);
+      }
+    }
+
     if (next.isMatchOver) {
       _showingBanner = true;
+      SoundService().playMatchEnd();
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted) _showMatchEndBanner(next);
       });
@@ -149,11 +203,12 @@ class _LiveMatchScreenState extends ConsumerState<LiveMatchScreen> {
     if (next.teamAGamesWon > _prevGamesWonA ||
         next.teamBGamesWon > _prevGamesWonB) {
       _showingBanner = true;
+      SoundService().playGameEnd();
       final winner =
           next.teamAGamesWon > _prevGamesWonA ? 'A' : 'B';
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted) {
-          _showGameEndBanner(prev!, next, winner)
+          _showGameEndBanner(prev, next, winner)
               .then((_) => _showingBanner = false);
         }
       });
@@ -197,6 +252,8 @@ class _LiveMatchScreenState extends ConsumerState<LiveMatchScreen> {
     final winner =
         state.teamAGamesWon > state.teamBGamesWon ? 'A' : 'B';
     final teamLabel = winner == 'A' ? 'Team A' : 'Team B';
+    final isTournamentMatch = state.match.tournamentId != null;
+
     final dialogResult = await showDialog<bool>(
       context: context,
       barrierDismissible: false,
@@ -217,7 +274,7 @@ class _LiveMatchScreenState extends ConsumerState<LiveMatchScreen> {
           actions: [
             FilledButton(
                 onPressed: () => Navigator.of(ctx).pop(true),
-                child: const Text('View Details'))
+                child: Text(isTournamentMatch ? 'Back to Bracket' : 'View Details'))
           ],
         ),
       ),
@@ -227,10 +284,19 @@ class _LiveMatchScreenState extends ConsumerState<LiveMatchScreen> {
           await ref.read(liveMatchProvider.notifier).endMatch();
       if (mounted) {
         if (dialogResult == true && completedId != null) {
-          context.go('/');
-          context.push('/match/$completedId');
+          if (isTournamentMatch && state.match.tournamentId != null) {
+            // Navigate back to the tournament bracket
+            context.go('/tournament/${state.match.tournamentId}');
+          } else {
+            context.go('/');
+            context.push('/match/$completedId');
+          }
         } else {
-          context.go('/');
+          if (isTournamentMatch && state.match.tournamentId != null) {
+            context.go('/tournament/${state.match.tournamentId}');
+          } else {
+            context.go('/');
+          }
         }
       }
     } catch (e) {
@@ -273,6 +339,18 @@ class _LiveMatchScreenState extends ConsumerState<LiveMatchScreen> {
                   onTap: () => Navigator.of(ctx).pop()),
               Semantics(
                 button: true,
+                label: 'Large score display for spectators',
+                child: ListTile(
+                    leading: const Icon(Icons.tv_rounded, size: 28),
+                    title: const Text('Spectator Mode'),
+                    subtitle: const Text('Big scores, no buttons'),
+                    onTap: () {
+                      Navigator.of(ctx).pop();
+                      _showSpectatorMode();
+                    }),
+              ),
+              Semantics(
+                button: true,
                 label: 'Save and exit, resume later from Home',
                 child: ListTile(
                     leading: const Icon(Icons.save_alt_rounded, size: 28),
@@ -302,6 +380,16 @@ class _LiveMatchScreenState extends ConsumerState<LiveMatchScreen> {
           ),
         ),
       ),
+    );
+  }
+
+  void _showSpectatorMode() {
+    final state = ref.read(liveMatchProvider);
+    if (state == null) return;
+    showDialog(
+      context: context,
+      barrierDismissible: true,
+      builder: (ctx) => _SpectatorOverlay(state: state),
     );
   }
 
@@ -347,56 +435,140 @@ class _LiveMatchScreenState extends ConsumerState<LiveMatchScreen> {
           ])));
     }
 
-    // Start the elapsed timer once after the match screen loads.
-    if (!_elapsedStarted) {
-      _elapsedStarted = true;
-      _elapsedStr = _formatElapsed(liveState.match.createdAt);
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted) _startElapsedTimer(liveState.match.createdAt);
-      });
-    }
+    return Stack(
+      children: [
+        Scaffold(
+          appBar: _buildAppBar(liveState, theme),
+          body: PopScope(
+            canPop: false,
+            onPopInvokedWithResult: (didPop, _) {
+              if (!didPop) _showPauseMenu();
+            },
+            child: SafeArea(
+              child: GestureDetector(
+                onVerticalDragEnd: (details) {
+                  if (details.primaryVelocity == null) return;
+                  if (details.primaryVelocity! < -800) {
+                    // Swipe up — Team A scores
+                    _onTeamScore(Team.A);
+                  } else if (details.primaryVelocity! > 800) {
+                    // Swipe down — Team B scores
+                    _onTeamScore(Team.B);
+                  }
+                },
+                child: Column(children: [
+                  const SizedBox(height: 8),
+                  // Court fills available space at the top
+                  Expanded(child: _buildCourtDiagram(liveState)),
+                  const SizedBox(height: 10),
+                  _buildGamePointIndicator(liveState, theme),
+                  _buildUnifiedScore(liveState, theme),
+                  if (_sideOutMessage != null) _buildSideOutChip(theme),
+                  const SizedBox(height: 10),
+                  _buildPointButtons(liveState),
+                  const SizedBox(height: 8),
+                  _buildBottomBar(liveState, theme),
+                  const SizedBox(height: 8),
+                ]),
+              ),
+            ),
+          ),
+        ),
+        if (_showTutorial)
+          Positioned.fill(
+            child: TutorialOverlay(onComplete: _dismissTutorial),
+          ),
+      ],
+    );
+  }
 
-    return Scaffold(
-      appBar: _buildAppBar(liveState, theme),
-      body: PopScope(
-        canPop: false,
-        onPopInvokedWithResult: (didPop, _) {
-          if (!didPop) _showPauseMenu();
-        },
-        child: SafeArea(
-          child: Column(children: [
-            const SizedBox(height: 8),
-            // Court fills available space at the top
-            Expanded(child: _buildCourtDiagram(liveState)),
-            const SizedBox(height: 10),
-            _buildUnifiedScore(liveState, theme),
-            const SizedBox(height: 10),
-            _buildPointButtons(liveState),
-            const SizedBox(height: 8),
-            _buildBottomBar(liveState, theme),
-            const SizedBox(height: 8),
-          ]),
+  Widget _buildSideOutChip(ThemeData theme) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 6),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 200),
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+        decoration: BoxDecoration(
+          color: theme.colorScheme.surfaceContainerHighest,
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(
+            color: theme.colorScheme.primary.withValues(alpha: 0.3),
+          ),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(Icons.sync_alt_rounded,
+                size: 14, color: theme.colorScheme.primary),
+            const SizedBox(width: 6),
+            Text(
+              _sideOutMessage!,
+              style: theme.textTheme.labelMedium?.copyWith(
+                color: theme.colorScheme.primary,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ],
         ),
       ),
     );
   }
 
-  void _startElapsedTimer(DateTime startTime) {
-    _elapsedTimer = Timer.periodic(const Duration(seconds: 1), (_) {
-      _updateElapsed(startTime);
-    });
-  }
+  Widget _buildGamePointIndicator(LiveMatchState state, ThemeData theme) {
+    final scoring = state.scoringState;
+    if (scoring.isGameOver || scoring.isMatchOver) return const SizedBox.shrink();
 
-  String _formatElapsed(DateTime startTime) {
-    final elapsed = DateTime.now().difference(startTime);
-    return '${elapsed.inMinutes.toString().padLeft(2, '0')}:${(elapsed.inSeconds % 60).toString().padLeft(2, '0')}';
-  }
+    final int diff = (state.teamAScore - state.teamBScore).abs();
+    final int leaderScore = state.teamAScore > state.teamBScore ? state.teamAScore : state.teamBScore;
+    final int target = state.match.playTo;
+    final int winBy = state.match.winBy;
 
-  void _updateElapsed(DateTime startTime) {
-    final newStr = _formatElapsed(startTime);
-    if (newStr != _elapsedStr && mounted) {
-      setState(() => _elapsedStr = newStr);
+    bool isGamePoint = false;
+    String? pointLabel;
+
+    if (leaderScore >= target && diff >= winBy - 1 && diff < winBy) {
+      isGamePoint = true;
+      pointLabel = 'Game Point';
+    } else if (leaderScore == target - 1 && diff >= winBy - 1) {
+      isGamePoint = true;
+      pointLabel = 'Game Point';
     }
+
+    if (!isGamePoint) return const SizedBox.shrink();
+
+    final bool teamAIsLeader = state.teamAScore > state.teamBScore;
+    final Color pointColor = teamAIsLeader ? courtGreen : courtBlue;
+
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 6),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 300),
+        curve: Curves.easeInOut,
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+        decoration: BoxDecoration(
+          color: pointColor.withValues(alpha: 0.12),
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(color: pointColor.withValues(alpha: 0.4)),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(Icons.star_rounded, size: 14, color: pointColor),
+            const SizedBox(width: 6),
+            Text(
+              pointLabel!,
+              style: theme.textTheme.labelMedium?.copyWith(
+                color: pointColor,
+                fontWeight: FontWeight.w800,
+                letterSpacing: 0.5,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 
   // ── AppBar ──
@@ -409,13 +581,17 @@ class _LiveMatchScreenState extends ConsumerState<LiveMatchScreen> {
           onPressed: _showPauseMenu,
           tooltip: 'Pause'),
       title: Column(mainAxisSize: MainAxisSize.min, children: [
-        Text('Game ${state.currentGame}/${state.gameCount}',
-            style: theme.textTheme.titleSmall
-                ?.copyWith(fontWeight: FontWeight.w700)),
-        Text(
-            '$ruleLabel \u2022 ${state.isDoubles ? "Doubles" : "Singles"} \u2022 $_elapsedStr',
-            style: theme.textTheme.bodySmall?.copyWith(
-                color: theme.colorScheme.onSurfaceVariant)),
+        Semantics(
+          header: true,
+          child: Text('Game ${state.currentGame}/${state.gameCount}',
+              style: theme.textTheme.titleSmall
+                  ?.copyWith(fontWeight: FontWeight.w700)),
+        ),
+        _MatchTimerSubtitle(
+          ruleLabel: ruleLabel,
+          isDoubles: state.isDoubles,
+          createdAt: state.match.createdAt,
+        ),
       ]),
       centerTitle: true,
     );
@@ -487,7 +663,7 @@ class _LiveMatchScreenState extends ConsumerState<LiveMatchScreen> {
                   style: theme.textTheme.labelSmall?.copyWith(
                       color: teamColor, fontWeight: FontWeight.w600),
                 ),
-                if (isDoubles) ...[
+                if (isDoubles && state.isSideOut) ...[
                   const SizedBox(width: 4),
                   Text(
                     '\u2022 Server ${state.serverNumber}/2',
@@ -731,6 +907,209 @@ class _LiveMatchScreenState extends ConsumerState<LiveMatchScreen> {
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+// ── Isolated timer widget — prevents 1Hz full-screen rebuilds ──
+
+class _MatchTimerSubtitle extends StatefulWidget {
+  final String ruleLabel;
+  final bool isDoubles;
+  final DateTime createdAt;
+
+  const _MatchTimerSubtitle({
+    required this.ruleLabel,
+    required this.isDoubles,
+    required this.createdAt,
+  });
+
+  @override
+  State<_MatchTimerSubtitle> createState() => _MatchTimerSubtitleState();
+}
+
+// ── Spectator overlay — large scores for tablets/spectators ──
+
+class _SpectatorOverlay extends StatelessWidget {
+  final LiveMatchState state;
+
+  const _SpectatorOverlay({required this.state});
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final aNames = state.players.where((p) => p.team == 'A').map((p) => p.name).join(' & ');
+    final bNames = state.players.where((p) => p.team == 'B').map((p) => p.name).join(' & ');
+
+    return GestureDetector(
+      onTap: () => Navigator.of(context).pop(),
+      child: Scaffold(
+        backgroundColor: theme.colorScheme.surface,
+        body: SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.all(24),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Text(
+                  'Game ${state.currentGame}/${state.gameCount}',
+                  style: theme.textTheme.titleLarge?.copyWith(
+                    color: theme.colorScheme.onSurfaceVariant,
+                  ),
+                ),
+                const SizedBox(height: 32),
+                Row(
+                  children: [
+                    Expanded(
+                      child: _SpectatorTeamColumn(
+                        names: aNames,
+                        score: state.teamAScore,
+                        games: state.teamAGamesWon,
+                        color: courtGreen,
+                        theme: theme,
+                      ),
+                    ),
+                    Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 20),
+                      child: Text(
+                        '–',
+                        style: theme.textTheme.displayLarge?.copyWith(
+                          color: theme.colorScheme.onSurfaceVariant,
+                        ),
+                      ),
+                    ),
+                    Expanded(
+                      child: _SpectatorTeamColumn(
+                        names: bNames,
+                        score: state.teamBScore,
+                        games: state.teamBGamesWon,
+                        color: courtBlue,
+                        theme: theme,
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 40),
+                Text(
+                  'Tap anywhere to exit',
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: theme.colorScheme.onSurfaceVariant,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _SpectatorTeamColumn extends StatelessWidget {
+  final String names;
+  final int score;
+  final int games;
+  final Color color;
+  final ThemeData theme;
+
+  const _SpectatorTeamColumn({
+    required this.names,
+    required this.score,
+    required this.games,
+    required this.color,
+    required this.theme,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Text(
+          names,
+          style: theme.textTheme.titleMedium?.copyWith(
+            fontWeight: FontWeight.w600,
+            color: theme.colorScheme.onSurfaceVariant,
+          ),
+          textAlign: TextAlign.center,
+        ),
+        const SizedBox(height: 12),
+        Text(
+          '$score',
+          style: theme.textTheme.displayLarge?.copyWith(
+            fontSize: 96,
+            fontWeight: FontWeight.w900,
+            color: color,
+            fontFeatures: const [FontFeature.tabularFigures()],
+          ),
+        ),
+        if (games > 0) ...[
+          const SizedBox(height: 8),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: List.generate(
+              games,
+              (_) => Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 3),
+                child: Container(
+                  width: 10,
+                  height: 10,
+                  decoration: BoxDecoration(
+                    color: color,
+                    shape: BoxShape.circle,
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ],
+      ],
+    );
+  }
+}
+
+class _MatchTimerSubtitleState extends State<_MatchTimerSubtitle> {
+  late String _elapsedStr;
+  Timer? _timer;
+
+  @override
+  void initState() {
+    super.initState();
+    _elapsedStr = _formatElapsed(widget.createdAt);
+    _timer = Timer.periodic(const Duration(seconds: 1), (_) {
+      if (mounted) {
+        setState(() => _elapsedStr = _formatElapsed(widget.createdAt));
+      }
+    });
+  }
+
+  @override
+  void didUpdateWidget(covariant _MatchTimerSubtitle old) {
+    super.didUpdateWidget(old);
+    if (old.createdAt != widget.createdAt) {
+      _elapsedStr = _formatElapsed(widget.createdAt);
+    }
+  }
+
+  @override
+  void dispose() {
+    _timer?.cancel();
+    super.dispose();
+  }
+
+  String _formatElapsed(DateTime startTime) {
+    final elapsed = DateTime.now().difference(startTime);
+    return '${elapsed.inMinutes.toString().padLeft(2, '0')}:${(elapsed.inSeconds % 60).toString().padLeft(2, '0')}';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Text(
+      '${widget.ruleLabel} \u2022 ${widget.isDoubles ? "Doubles" : "Singles"} \u2022 $_elapsedStr',
+      style: theme.textTheme.bodySmall?.copyWith(
+        color: theme.colorScheme.onSurfaceVariant,
       ),
     );
   }

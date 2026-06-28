@@ -6,17 +6,26 @@
 // error states, "Save & Exit" from the Live Pause Menu).
 import 'package:go_router/go_router.dart';
 import 'screens/home/home_screen.dart';
+import 'screens/onboarding/onboarding_screen.dart';
 import 'screens/setup/setup_screen.dart';
 import 'screens/live/live_match_screen.dart';
 import 'screens/details/match_details_screen.dart';
 import 'screens/settings/settings_screen.dart';
+import 'screens/tournament/tournament_setup_screen.dart';
+import 'screens/tournament/tournament_screen.dart';
 
-final router = GoRouter(
+GoRouter createRouter() => GoRouter(
   initialLocation: '/',
   routes: [
     GoRoute(
       path: '/',
       builder: (context, state) => const HomeScreen(),
+    ),
+    GoRoute(
+      path: '/onboarding',
+      builder: (context, state) => OnboardingScreen(
+        onComplete: () => context.go('/'),
+      ),
     ),
     GoRoute(
       path: '/match/setup',
@@ -41,5 +50,20 @@ final router = GoRouter(
       path: '/settings',
       builder: (context, state) => const SettingsScreen(),
     ),
+    GoRoute(
+      path: '/tournament/setup',
+      builder: (context, state) => const TournamentSetupScreen(),
+    ),
+    GoRoute(
+      path: '/tournament/:id',
+      builder: (context, state) {
+        final id = int.tryParse(state.pathParameters['id'] ?? '') ?? 0;
+        if (id <= 0) return const HomeScreen();
+        return TournamentScreen(tournamentId: id);
+      },
+    ),
   ],
 );
+
+/// Global router instance used by the app.
+final router = createRouter();

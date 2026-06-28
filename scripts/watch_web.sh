@@ -10,8 +10,11 @@
 #   3. The phone_preview.html page polls that file every 2s and
 #      auto-refreshes the iframe when it changes.
 #
-# Requirements: `entr` (install: `choco install entr` or `brew install entr`)
-#   Fallback: if `entr` is not installed, uses a polling loop instead.
+# Preferred watcher: chokidar-cli (cross-platform, instant)
+#   Install: npm install --save-dev chokidar-cli
+# Fallback 1: entr (Unix only)
+#   Install: brew install entr (Mac) / pacman -S entr (MSYS2)
+# Fallback 2: polling loop (checks every 2s)
 
 set -euo pipefail
 
@@ -34,7 +37,7 @@ do_build() {
 }
 
 echo "▶ PickleTrack web watcher"
-echo "  Watching: lib/"
+echo "  Watching: lib/  +  web/phone_preview.html"
 echo "  Output:   $BUILD_DIR/"
 echo ""
 
@@ -50,13 +53,29 @@ else
 fi
 echo ""
 
-# ── Watch method 1: entr (preferred, efficient) ──
-if command -v entr &>/dev/null; then
+# ── Watch method 1: chokidar-cli (preferred, cross-platform, instant) ──
+if command -v npx &>/dev/null && npx chokidar --version &>/dev/null; then
+  echo "Using chokidar-cli (instant, cross-platform) for file watching."
+  echo "Press Ctrl+C to stop."
+  echo ""
+  npx chokidar "lib/**/*.dart" "web/phone_preview.html" --initial --command "
+    echo '[build] Rebuilding at \$(date +%H:%M:%S)…'
+    flutter build web 2>&1 | grep -vE '^(Compiling|Building|Font|Asset|$)'
+    if [ \"\${PIPESTATUS[0]}\" -eq 0 ]; then
+      date +%s > '$TS_FILE'
+      echo '[done]  Build OK — \$(date +%H:%M:%S)'
+    else
+      echo '[FAIL]  Build failed — see errors above'
+    fi
+    echo '---'
+  "
+
+# ── Watch method 2: entr (Unix-only, efficient) ──
+elif command -v entr &>/dev/null; then
   echo "Using entr for file watching."
   echo "Press Ctrl+C to stop."
   echo ""
-  # Use bash -c (not sh -c) so PIPESTATUS works everywhere
-  find lib/ -name '*.dart' | entr -r -p bash -c '
+  find lib/ -name '*.dart' -o -name 'phone_preview.html' | entr -r -p bash -c '
     cd "$(dirname "$0")/.." 2>/dev/null || true
     echo "[build] Rebuilding at $(date "+%H:%M:%S")…"
     flutter build web 2>&1 | grep -vE "^(Compiling|Building|Font|Asset|$)"
@@ -69,10 +88,10 @@ if command -v entr &>/dev/null; then
     echo "---"
   ' "$0"
 
-# ── Watch method 2: polling fallback (no entr) ──
+# ── Watch method 3: polling fallback ──
 else
-  echo "entr not found — using polling fallback (checks every 2s)."
-  echo "Install entr for instant rebuilds: choco install entr (Windows) / brew install entr (Mac)"
+  echo "No instant watcher found — using polling fallback (checks every 2s)."
+  echo "Install chokidar-cli for instant rebuilds: npm install --save-dev chokidar-cli"
   echo "Press Ctrl+C to stop."
   echo ""
 
@@ -88,8 +107,7 @@ else
 
   LAST_HASH=""
   while true; do
-    # Hash all dart file contents to detect any change
-    CURRENT_HASH=$(find lib/ -name '*.dart' -exec "${HASH_CMD[@]}" {} + 2>/dev/null | sort | "${HASH_CMD[0]}" | cut -d' ' -f1)
+    CURRENT_HASH=$(find lib/ -name '*.dart' -o -name 'phone_preview.html' -exec "${HASH_CMD[@]}" {} + 2>/dev/null | sort | "${HASH_CMD[0]}" | cut -d' ' -f1)
 
     if [ "$CURRENT_HASH" != "$LAST_HASH" ] && [ -n "$LAST_HASH" ]; then
       do_build

@@ -36,14 +36,16 @@ class CourtDiagram extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final brightness = Theme.of(context).brightness;
-    return CustomPaint(
-      painter: _CourtPainter(
-        players: players,
-        servingPlayerId: servingPlayerId,
-        isDoubles: isDoubles,
-        brightness: brightness,
+    return RepaintBoundary(
+      child: CustomPaint(
+        painter: _CourtPainter(
+          players: players,
+          servingPlayerId: servingPlayerId,
+          isDoubles: isDoubles,
+          brightness: brightness,
+        ),
+        child: const SizedBox.expand(),
       ),
-      child: const SizedBox.expand(),
     );
   }
 }
@@ -55,16 +57,27 @@ class _CourtPainter extends CustomPainter {
   final String? servingPlayerId;
   final bool isDoubles;
   final Brightness brightness;
+  final List<TextPainter> _textPainters = [];
 
-  const _CourtPainter({
+  _CourtPainter({
     required this.players,
     this.servingPlayerId,
     required this.isDoubles,
     required this.brightness,
   });
 
+  TextPainter _createTextPainter(TextSpan span, {TextDirection dir = TextDirection.ltr}) {
+    final tp = TextPainter(text: span, textDirection: dir);
+    _textPainters.add(tp);
+    return tp;
+  }
+
   @override
   void paint(Canvas canvas, Size size) {
+    for (final tp in _textPainters) {
+      tp.dispose();
+    }
+    _textPainters.clear();
     final m = _Metrics(size, isDoubles: isDoubles);
     final c = _CourtColors.of(brightness);
 
@@ -197,8 +210,8 @@ class _CourtPainter extends CustomPainter {
   }
 
   void _label(Canvas canvas, String text, Offset pos, double size, Color color) {
-    final tp = TextPainter(
-      text: TextSpan(
+    final tp = _createTextPainter(
+      TextSpan(
         text: text,
         style: TextStyle(
           color: color,
@@ -207,7 +220,6 @@ class _CourtPainter extends CustomPainter {
           letterSpacing: 1.2,
         ),
       ),
-      textDirection: TextDirection.ltr,
     )..layout();
     tp.paint(canvas, Offset(pos.dx - tp.width / 2, pos.dy - tp.height / 2));
   }
@@ -262,8 +274,8 @@ class _CourtPainter extends CustomPainter {
 
       // Initials inside the dot
       final initials = _initials(player.name);
-      final initialsTp = TextPainter(
-        text: TextSpan(
+      final initialsTp = _createTextPainter(
+        TextSpan(
           text: initials,
           style: TextStyle(
             color: c.initialsText,
@@ -271,7 +283,6 @@ class _CourtPainter extends CustomPainter {
             fontWeight: FontWeight.w800,
           ),
         ),
-        textDirection: TextDirection.ltr,
       )..layout();
       initialsTp.paint(
         canvas,
@@ -282,8 +293,8 @@ class _CourtPainter extends CustomPainter {
       final displayName = player.name.length > 10
           ? '${player.name.substring(0, 9)}\u2026'
           : player.name;
-      final nameTp = TextPainter(
-        text: TextSpan(
+      final nameTp = _createTextPainter(
+        TextSpan(
           text: displayName,
           style: TextStyle(
             color: c.nameLabel,
@@ -294,7 +305,6 @@ class _CourtPainter extends CustomPainter {
             ],
           ),
         ),
-        textDirection: TextDirection.ltr,
       )..layout(maxWidth: 80);
       nameTp.paint(
         canvas,

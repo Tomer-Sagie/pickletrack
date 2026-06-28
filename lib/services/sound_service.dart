@@ -61,24 +61,47 @@ class SoundService {
 
   /// Play a short confirmation sound for a point scored.
   Future<void> playPointScored() async {
+    await _playSound(
+      asset: 'sounds/point_scored.wav',
+      fallback: SystemSoundType.click,
+    );
+  }
+
+  /// Play a distinct sound for game end.
+  Future<void> playGameEnd() async {
+    await _playSound(
+      asset: 'sounds/game_end.wav',
+      fallback: SystemSoundType.alert,
+    );
+  }
+
+  /// Play a distinct sound for match end.
+  Future<void> playMatchEnd() async {
+    await _playSound(
+      asset: 'sounds/match_end.wav',
+      fallback: SystemSoundType.alert,
+    );
+  }
+
+  Future<void> _playSound({
+    required String asset,
+    required SystemSoundType fallback,
+  }) async {
     if (!_enabled) return;
     final player = _ensurePlayer();
     if (player == null) {
-      // No platform support — fall straight to the system click.
-      SystemSound.play(SystemSoundType.click);
+      try {
+        SystemSound.play(fallback);
+      } catch (_) {}
       return;
     }
     try {
-      // If the audio asset is bundled, load and play it.
-      await player.play(AssetSource('sounds/point_scored.wav'));
-    } catch (_) {
-      // Asset not available — use system sound as fallback.
+      await player.play(AssetSource(asset));
+    } catch (e) {
+      debugPrint('SoundService: failed to play $asset — $e');
       try {
-        SystemSound.play(SystemSoundType.click);
-      } catch (_) {
-        // SystemSound isn't available either (e.g. some test/platform combos) —
-        // swallow silently rather than crashing the gameplay.
-      }
+        SystemSound.play(fallback);
+      } catch (_) {}
     }
   }
 

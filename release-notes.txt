@@ -1,0 +1,7 @@
+PickleTrack v1.4.1
+
+- Pickleball game tracker with live scoring, tournaments, and statistics
+- Offline-first: all data stored locally on your device
+- Supports singles & doubles, rally scoring & side-out scoring
+- Tournament bracket generation (single elimination, double elimination, round robin)
+- Share match results as text or image

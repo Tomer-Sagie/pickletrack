@@ -6,10 +6,13 @@ import 'package:drift/drift.dart' show Value;
 
 import '../database/database.dart';
 import '../models/scoring_preset.dart';
+import '../models/tournament.dart';
 import '../providers/active_match_provider.dart';
 import '../providers/completed_matches_provider.dart';
 import '../providers/database_provider.dart';
+import '../providers/tournament_provider.dart';
 import '../services/scoring_service.dart';
+import '../services/tournament_service.dart';
 
 /// Holds the reconstructed match state plus DB references for the live screen.
 class LiveMatchState {
@@ -196,10 +199,33 @@ class LiveMatchNotifier extends StateNotifier<LiveMatchState?> {
 
     // Replay events to reconstruct current state
     for (final event in events) {
-      // Only replay user-action events (point, sideout).
-      // game_end and match_end are generated internally by the scoring service
-      // and replaying them would incorrectly score extra points.
-      if (event.scorerTeam != null &&
+      if (event.eventType == 'sideout' && event.scorerTeam != null) {
+        // Side-out events store the team that won the rally (non-serving team).
+        // Replay them so server rotation is restored correctly on resume.
+        final team = event.scorerTeam == 'A' ? Team.A : Team.B;
+        if (scoringState.isGameInProgress) {
+          try {
+            final result = ScoringService.recordPoint(scoringState, team);
+            scoringState = result.newState;
+          } catch (_) {
+            // Skip if state is inconsistent
+          }
+        }
+      } else if (event.eventType == 'sideout' && event.scorerTeam == null) {
+        // Backward-compat: old sideout events stored before the fix didn't
+        // capture the winning team. We can infer it: the non-serving team
+        // won the rally, so it's the opposite of the current serverTeam.
+        final winningTeamStr = scoringState.serverTeam == 'A' ? 'B' : 'A';
+        final team = winningTeamStr == 'A' ? Team.A : Team.B;
+        if (scoringState.isGameInProgress) {
+          try {
+            final result = ScoringService.recordPoint(scoringState, team);
+            scoringState = result.newState;
+          } catch (_) {
+            // Skip if state is inconsistent
+          }
+        }
+      } else if (event.scorerTeam != null &&
           event.eventType != 'game_end' &&
           event.eventType != 'match_end') {
         final team = event.scorerTeam == 'A' ? Team.A : Team.B;
@@ -450,6 +476,20 @@ class LiveMatchNotifier extends StateNotifier<LiveMatchState?> {
     //   so the banner disappears instead of pointing at a dead row.
     // - `invalidate(completedMatchesProvider)` → the just-archived
     //   match appears in Home → Match History without a manual refresh.
+    // ── Tournament integration ──
+    // If this match was part of a tournament, advance the bracket.
+    if (current.match.tournamentId != null &&
+        current.match.tournamentMatchId != null) {
+      await _advanceTournamentBracket(
+        tournamentId: current.match.tournamentId!,
+        bracketMatchId: current.match.tournamentMatchId!,
+        winnerName: _firstPlayerName(current.players, winner == 'A' ? 'A' : 'B'),
+        loserName: _firstPlayerName(current.players, winner == 'A' ? 'B' : 'A'),
+        scoreJson: jsonEncode(finalScores),
+        completedDbId: completedId,
+      );
+    }
+
     state = null;
     _stateSnapshots.clear();
     _ref.invalidate(activeMatchProvider);
@@ -458,12 +498,81 @@ class LiveMatchNotifier extends StateNotifier<LiveMatchState?> {
     return completedId;
   }
 
+  /// Advances the tournament bracket after a tournament-linked match ends.
+  Future<void> _advanceTournamentBracket({
+    required int tournamentId,
+    required int bracketMatchId,
+    required String winnerName,
+    required String loserName,
+    required String scoreJson,
+    required int completedDbId,
+  }) async {
+    try {
+      final row = await _db.getTournament(tournamentId);
+      if (row == null || row.bracketJson == null) return;
+
+      final format = TournamentFormatX.fromJson(row.format);
+      final bracket = TournamentBracket.fromJsonString(row.bracketJson!);
+
+      // Parse players from the tournament's stored JSON
+      final players = (jsonDecode(row.playersJson) as List<dynamic>)
+          .map((p) => TournamentPlayer.fromJson(p as Map<String, dynamic>))
+          .toList();
+
+      final updatedBracket = TournamentService.advanceBracket(
+        format,
+        bracket,
+        bracketMatchId,
+        winnerName,
+        loserName,
+        scoreJson,
+        completedDbId,
+        players,
+      );
+
+      final isComplete = TournamentService.isTournamentComplete(updatedBracket);
+      String? finalRankingsJson;
+      DateTime? completedAt;
+
+      if (isComplete) {
+        final rankings = TournamentService.generateFinalRankings(
+            updatedBracket, players);
+        finalRankingsJson =
+            jsonEncode(rankings.map((p) => p.toJson()).toList());
+        completedAt = DateTime.now();
+      }
+
+      await _db.updateTournamentBracket(
+        tournamentId: tournamentId,
+        bracketJson: updatedBracket.toJsonString(),
+        status: isComplete ? 'completed' : null,
+        finalRankingsJson: finalRankingsJson,
+        completedAt: completedAt,
+      );
+
+      _ref.invalidate(tournamentsProvider);
+      _ref.invalidate(tournamentProvider(tournamentId));
+    } catch (e) {
+      debugPrint('LiveMatchNotifier: tournament advancement failed — $e');
+    }
+  }
+
   /// Returns the server's display name.
   String? get serverDisplayName {
     final s = state;
     if (s == null || s.servingPlayerId == null) return null;
     return s.playerName(s.servingPlayerId!);
   }
+}
+
+/// Defensive helper: returns the first player name on [team], or
+/// "Team [team]" if no matching player exists (protects against
+/// corrupted/malformed state that would crash `firstWhere`).
+String _firstPlayerName(List<ActiveMatchPlayer> players, String team) {
+  for (final p in players) {
+    if (p.team == team) return p.name;
+  }
+  return 'Team $team';
 }
 
 /// Provider for the live match notifier.

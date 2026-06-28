@@ -9,6 +9,7 @@ import 'package:pickletrack/providers/active_match_provider.dart';
 import 'package:pickletrack/providers/completed_matches_provider.dart';
 import 'package:pickletrack/providers/database_provider.dart';
 import 'package:pickletrack/providers/theme_provider.dart';
+import 'package:pickletrack/providers/tournament_provider.dart';
 import 'package:pickletrack/screens/home/home_screen.dart';
 
 import 'helpers/stubs.dart';
@@ -68,6 +69,9 @@ Future<void> pumpHomeScreen(
         // Stubs out the AsyncNotifier's DB read so test ordering can't
         // leak a previously-written theme_mode value across tests.
         themeModeProvider.overrideWith(StubThemeModeNotifier.new),
+        // No tournaments in test context — prevents async DB reads from
+        // triggering unwanted rebuilds that interfere with search state.
+        tournamentsProvider.overrideWith((_) => Future.value([])),
       ],
       child: const MaterialApp(home: HomeScreen()),
     ),
@@ -144,6 +148,7 @@ void main() {
             activeMatchProvider.overrideWith((_) => Future.value(null)),
             completedMatchesProvider.overrideWith((_) => completer.future),
             themeModeProvider.overrideWith(StubThemeModeNotifier.new),
+            tournamentsProvider.overrideWith((_) => Future.value([])),
           ],
           child: const MaterialApp(home: HomeScreen()),
         ),
@@ -162,7 +167,8 @@ void main() {
       expect(find.text('Match History'), findsOneWidget);
       // Score summary: '11-3'
       expect(find.textContaining('11-3'), findsOneWidget);
-      expect(find.text('Doubles'), findsOneWidget);
+      // The match card now shows player names: "Doubles · Alice & Bob vs Carol & Dave"
+      expect(find.textContaining('Alice & Bob'), findsAtLeastNWidgets(1));
     });
 
     testWidgets('shows resume banner when active match exists', (tester) async {
@@ -220,7 +226,14 @@ void main() {
         expect(find.text("No matches found for 'xyz'"), findsOneWidget);
         expect(find.text('Clear Search'), findsOneWidget);
 
-        // Tap the Clear Search action.
+        // Scroll the Clear Search button into view before tapping —
+        // the tournament UI section above can push it off-screen.
+        await tester.scrollUntilVisible(
+          find.text('Clear Search'),
+          100,
+          scrollable: find.byType(Scrollable).first,
+        );
+        await tester.pumpAndSettle(); // let scrollable settle so tap hits the button
         await tester.tap(find.text('Clear Search'));
         await tester.pumpAndSettle();
 

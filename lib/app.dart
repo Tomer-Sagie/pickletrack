@@ -1,53 +1,89 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'main.dart';
+import 'providers/database_provider.dart';
 import 'providers/theme_provider.dart';
 import 'router.dart';
+import 'screens/onboarding/onboarding_screen.dart';
 import 'theme/app_theme.dart';
 
-class PickleTrackApp extends ConsumerWidget {
+class PickleTrackApp extends ConsumerStatefulWidget {
   const PickleTrackApp({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<PickleTrackApp> createState() => _PickleTrackAppState();
+}
+
+class _PickleTrackAppState extends ConsumerState<PickleTrackApp> {
+  bool? _hasSeenOnboarding;
+  bool _checkingOnboarding = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _checkOnboarding();
+  }
+
+  Future<void> _checkOnboarding() async {
+    try {
+      final db = ref.read(databaseProvider);
+      // Flush any crashes caught before the DB was ready (e.g. FFI
+      // init failures, async zone errors, framework build crashes).
+      await flushStartupCrashes(db);
+      final value = await db.getSetting('has_seen_onboarding');
+      if (mounted) {
+        setState(() {
+          _hasSeenOnboarding = value == 'true';
+          _checkingOnboarding = false;
+        });
+      }
+    } catch (_) {
+      if (mounted) {
+        setState(() {
+          _hasSeenOnboarding = false;
+          _checkingOnboarding = false;
+        });
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
     final themeAsync = ref.watch(themeModeProvider);
 
-    // Resolve the AsyncValue into a single (statusKey, child) pair so the
-    // AnimatedSwitcher below can cross-fade when the boot phase changes
-    // (splash → app, or splash → error). Without this, the swap from
-    // brand-splash to first router frame is instantaneous and jarring on
-    // slow devices where the DB read takes a beat.
-    //
-    // Hand-rolled if/else rather than `themeAsync.when(...)` so we can
-    // use plain local assignment (Dart's analyzer treats assignments
-    // inside multiple closures as ambiguous and rejects final locals).
-    final String statusKey;
-    final Widget child;
-    if (themeAsync.isLoading) {
-      // While the user's stored preference is being read from the DB
-      // paint a minimal brand-coloured splash — no MaterialApp wrap, so
-      // there is no risk of flashing between system + stored themes.
-      statusKey = 'splash';
-      child = const _ThemeBootstrapSplash();
-    } else if (themeAsync.hasError) {
-      statusKey = 'error';
-      child = _ThemeBootstrapError(error: themeAsync.error.toString());
-    } else {
-      final mode = themeAsync.requireValue;
-      statusKey = 'app';
-      child = MaterialApp.router(
-        title: 'PickleTrack',
-        debugShowCheckedModeBanner: false,
-        theme: AppTheme.light,
-        darkTheme: AppTheme.dark,
-        themeMode: mode,
-        routerConfig: router,
-      );
+    // Still bootstrapping theme OR onboarding check in flight → splash.
+    if (themeAsync.isLoading || _checkingOnboarding) {
+      return const _ThemeBootstrapSplash();
     }
-    return AnimatedSwitcher(
-      duration: const Duration(milliseconds: 280),
-      switchInCurve: Curves.easeOut,
-      switchOutCurve: Curves.easeIn,
-      child: KeyedSubtree(key: ValueKey<String>(statusKey), child: child),
+
+    if (themeAsync.hasError) {
+      return _ThemeBootstrapError(error: themeAsync.error.toString());
+    }
+
+    final mode = themeAsync.requireValue;
+
+    return MaterialApp.router(
+      title: 'PickleTrack',
+      debugShowCheckedModeBanner: false,
+      theme: AppTheme.light,
+      darkTheme: AppTheme.dark,
+      themeMode: mode,
+      routerConfig: router,
+      builder: (context, child) {
+        // Gate the entire app on onboarding completion.
+        // Using a builder here keeps the router alive (deep links, back
+        // button, etc.) while overlaying the onboarding flow when needed.
+        if (_hasSeenOnboarding != true) {
+          return OnboardingScreen(
+            onComplete: () {
+              if (mounted) {
+                setState(() => _hasSeenOnboarding = true);
+              }
+            },
+          );
+        }
+        return child ?? const SizedBox.shrink();
+      },
     );
   }
 }

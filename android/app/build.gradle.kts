@@ -3,6 +3,9 @@ plugins {
     id("kotlin-android")
     // The Flutter Gradle Plugin must be applied after the Android and Kotlin Gradle plugins.
     id("dev.flutter.flutter-gradle-plugin")
+    id("com.google.gms.google-services")
+    id("com.google.firebase.appdistribution")
+    id("com.google.firebase.crashlytics")
 }
 
 android {
@@ -36,9 +39,26 @@ android {
 
     buildTypes {
         release {
-            // TODO: Add your own signing config for the release build.
-            // Signing with the debug keys for now, so `flutter run --release` works.
+            // TODO: Replace with your own release signing config before
+            // uploading to the Play Store. See:
+            // https://docs.flutter.dev/deployment/android#configure-signing-in-gradle
             signingConfig = signingConfigs.getByName("debug")
+
+            // Shrink and optimize the release build
+            isMinifyEnabled = true
+            isShrinkResources = true
+            proguardFiles(
+                getDefaultProguardFile("proguard-android-optimize.txt"),
+                "proguard-rules.pro"
+            )
+
+            firebaseAppDistribution {
+                artifactType = "APK"
+                releaseNotesFile = "release-notes.txt"
+                // Uncomment and set groups or testers once configured:
+                // groups = "qa-team"
+                // testers = "user@example.com"
+            }
         }
     }
 }

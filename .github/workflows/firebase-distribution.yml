@@ -1,0 +1,52 @@
+# Build and distribute the Android APK to Firebase App Distribution.
+#
+# To enable:
+#   1. Add FIREBASE_APP_ID and FIREBASE_SERVICE_ACCOUNT_JSON as GitHub repository secrets
+#   2. Uncomment the 'push' trigger below
+#   3. Commit and push
+
+name: Firebase App Distribution
+
+on:
+  # Auto-distribute on every push to main:
+  push:
+    branches: [main]
+
+  # Manual trigger from GitHub Actions tab:
+  workflow_dispatch:
+    inputs:
+      release_notes:
+        description: 'Release notes for this build'
+        required: false
+        default: 'Latest build from CI'
+
+jobs:
+  build-and-distribute:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Get dependencies
+        run: flutter pub get
+
+      - name: Build release APK
+        run: flutter build apk --release
+
+      - name: Write release notes
+        run: echo "${{ github.event.inputs.release_notes || 'Latest build from CI' }}" > release-notes.txt
+
+      - name: Upload to Firebase App Distribution
+        uses: wzieba/Firebase-Distribution-Github-Action@v1
+        with:
+          appId: 1:420306123685:android:0134c4202db844c1eb064c
+          serviceCredentialsFileContent: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_JSON }}
+          groups: qa-team
+          file: build/app/outputs/flutter-apk/app-release.apk
+          releaseNotesFile: release-notes.txt

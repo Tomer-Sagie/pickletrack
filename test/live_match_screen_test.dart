@@ -175,6 +175,8 @@ Future<void> pumpWithState(WidgetTester tester, LiveMatchState state) async {
   // never opened during tests.
   final db = createInMemoryDatabase();
   addTearDown(() async => db.close());
+  // Prevent the first-match tutorial overlay from blocking taps.
+  await db.setSetting('has_seen_tutorial', 'true');
 
   await tester.pumpWidget(
     ProviderScope(
@@ -197,6 +199,7 @@ void main() {
     testWidgets('shows loading spinner initially', (tester) async {
       final db = createInMemoryDatabase();
       addTearDown(() async => db.close());
+      await db.setSetting('has_seen_tutorial', 'true');
 
       await tester.pumpWidget(
         ProviderScope(
@@ -325,6 +328,7 @@ void main() {
 
       final db = createInMemoryDatabase();
       addTearDown(() async => db.close());
+      await db.setSetting('has_seen_tutorial', 'true');
 
       _TestNotifier? notifier;
       await tester.pumpWidget(
@@ -358,6 +362,7 @@ void main() {
 
       final db = createInMemoryDatabase();
       addTearDown(() async => db.close());
+      await db.setSetting('has_seen_tutorial', 'true');
 
       _TestNotifier? notifier;
       await tester.pumpWidget(
@@ -387,6 +392,7 @@ void main() {
 
       final db = createInMemoryDatabase();
       addTearDown(() async => db.close());
+      await db.setSetting('has_seen_tutorial', 'true');
 
       _TestNotifier? notifier;
       await tester.pumpWidget(
@@ -501,6 +507,7 @@ void main() {
 
       final db = createInMemoryDatabase();
       addTearDown(() async => db.close());
+      await db.setSetting('has_seen_tutorial', 'true');
 
       _TestNotifier? notifier;
       await tester.pumpWidget(
@@ -539,6 +546,7 @@ void main() {
 
       final db = createInMemoryDatabase();
       addTearDown(() async => db.close());
+      await db.setSetting('has_seen_tutorial', 'true');
 
       _TestNotifier? notifier;
       await tester.pumpWidget(

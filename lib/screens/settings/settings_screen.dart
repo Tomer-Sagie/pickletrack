@@ -9,6 +9,7 @@ import '../../providers/completed_matches_provider.dart';
 import '../../providers/database_provider.dart';
 import '../../providers/settings_provider.dart';
 import '../../providers/theme_provider.dart';
+import '../../providers/tournament_provider.dart';
 import '../../services/share_service.dart';
 import '../../services/sound_service.dart';
 import '../../version.dart';
@@ -55,7 +56,10 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Settings'),
+        title: Semantics(
+          header: true,
+          child: const Text('Settings'),
+        ),
         leading: IconButton(
           icon: const Icon(Icons.arrow_back_rounded),
           onPressed: () => context.pop(),
@@ -65,28 +69,28 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
         padding: const EdgeInsets.fromLTRB(16, 8, 16, 40),
         children: [
           // ── Theme ──
-          const _SectionHeader(icon: Icons.palette_rounded, label: 'Appearance'),
+          Semantics(header: true, child: const _SectionHeader(icon: Icons.palette_rounded, label: 'Appearance')),
           const SizedBox(height: 8),
           _buildThemeSelector(theme, themeMode),
 
           const SizedBox(height: 28),
 
           // ── Defaults ──
-          const _SectionHeader(icon: Icons.tune_rounded, label: 'Defaults'),
+          Semantics(header: true, child: const _SectionHeader(icon: Icons.tune_rounded, label: 'Defaults')),
           const SizedBox(height: 8),
           _buildDefaultsSection(theme),
 
           const SizedBox(height: 28),
 
           // ── Feedback ──
-          const _SectionHeader(icon: Icons.volume_up_rounded, label: 'Sound & Feedback'),
+          Semantics(header: true, child: const _SectionHeader(icon: Icons.volume_up_rounded, label: 'Sound & Feedback')),
           const SizedBox(height: 8),
           _buildFeedbackSection(theme),
 
           const SizedBox(height: 28),
 
           // ── Data ──
-          const _SectionHeader(icon: Icons.storage_rounded, label: 'Data'),
+          Semantics(header: true, child: const _SectionHeader(icon: Icons.storage_rounded, label: 'Data')),
           const SizedBox(height: 8),
           _buildClearDataTile(theme),
           const SizedBox(height: 2),
@@ -97,7 +101,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
           const SizedBox(height: 28),
 
           // ── About ──
-          const _SectionHeader(icon: Icons.info_outline_rounded, label: 'About'),
+          Semantics(header: true, child: const _SectionHeader(icon: Icons.info_outline_rounded, label: 'About')),
           const SizedBox(height: 8),
           Card(
             elevation: 0,
@@ -196,8 +200,12 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                       color: theme.colorScheme.onSurfaceVariant,
                     ),
                   ),
-                  loading: () => const SizedBox.shrink(),
-                  error: (_, __) => const SizedBox.shrink(),
+                  loading: () => const SizedBox(
+                    width: 16,
+                    height: 16,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  ),
+                  error: (_, __) => Icon(Icons.error_outline, size: 18, color: theme.colorScheme.error),
                 ),
                 onTap: () => _showScoringRulePicker(),
               ),
@@ -212,8 +220,12 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                       color: theme.colorScheme.onSurfaceVariant,
                     ),
                   ),
-                  loading: () => const SizedBox.shrink(),
-                  error: (_, __) => const SizedBox.shrink(),
+                  loading: () => const SizedBox(
+                    width: 16,
+                    height: 16,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  ),
+                  error: (_, __) => Icon(Icons.error_outline, size: 18, color: theme.colorScheme.error),
                 ),
                 onTap: () => _showGameCountPicker(),
               ),
@@ -342,8 +354,12 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
               color: theme.colorScheme.onSurfaceVariant,
             ),
           ),
-          loading: () => const SizedBox.shrink(),
-          error: (_, __) => const SizedBox.shrink(),
+          loading: () => const SizedBox(
+            width: 16,
+            height: 16,
+            child: CircularProgressIndicator(strokeWidth: 2),
+          ),
+          error: (_, __) => Icon(Icons.error_outline, size: 18, color: theme.colorScheme.error),
         ),
         onTap: () => _showPresetPicker(),
       ),
@@ -439,6 +455,11 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
         onTap: () async {
           final db = ref.read(databaseProvider);
           await ShareService.exportAllData(db);
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(content: Text('Export prepared — share sheet opened.')),
+            );
+          }
         },
       ),
     );
@@ -525,22 +546,31 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
 
     final db = ref.read(databaseProvider);
     try {
-      // Delete all data from every table
-      await db.delete(db.completedMatches).go();
-      await db.delete(db.matchEventLog).go();
-      await db.delete(db.recentPlayers).go();
-      await db.delete(db.appSettings).go();
-      await db.delete(db.scoreEvents).go();
-      await db.delete(db.activeMatchPlayers).go();
-      await db.delete(db.activeMatches).go();
+      // Delete all data in a single transaction so partial failures
+      // can never leave the database in an inconsistent state.
+      await db.transaction(() async {
+        // ── Child tables first (foreign keys) ──
+        await db.delete(db.matchEventLog).go();
+        await db.delete(db.scoreEvents).go();
+        await db.delete(db.activeMatchPlayers).go();
 
-      // Reset theme to system
+        // ── Parent tables ──
+        await db.delete(db.completedMatches).go();
+        await db.delete(db.activeMatches).go();
+        await db.delete(db.recentPlayers).go();
+        await db.delete(db.appSettings).go();
+        await db.delete(db.tournaments).go();
+      });
+
+      // Reset theme to system and re-derive default settings
       ref.read(themeModeProvider.notifier).setMode(ThemeMode.system);
 
       // Invalidate all providers so the UI reflects the cleared state
       // without requiring a manual navigation away-and-back.
+      ref.invalidate(themeModeProvider);
       ref.invalidate(completedMatchesProvider);
       ref.invalidate(activeMatchProvider);
+      ref.invalidate(tournamentsProvider);
       ref.invalidate(defaultScoringRuleProvider);
       ref.invalidate(defaultGameCountProvider);
       ref.invalidate(defaultScoringPresetProvider);

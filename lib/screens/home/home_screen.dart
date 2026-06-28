@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -7,6 +9,7 @@ import '../../providers/active_match_provider.dart';
 import '../../providers/completed_matches_provider.dart';
 import '../../providers/database_provider.dart';
 import '../../providers/settings_provider.dart';
+import '../../providers/tournament_provider.dart';
 import '../../theme/colors.dart';
 import '../../utils/match_helpers.dart';
 import '../../widgets/confirm_dialog.dart';
@@ -23,6 +26,7 @@ class HomeScreen extends ConsumerStatefulWidget {
 class _HomeScreenState extends ConsumerState<HomeScreen> {
   final _searchController = TextEditingController();
   String _searchQuery = '';
+  final Set<int> _deletedMatchIds = {};
 
   @override
   void dispose() {
@@ -65,7 +69,10 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
           children: [
             _AppLogo(theme: theme),
             const SizedBox(width: 10),
-            const Text('PickleTrack'),
+            Semantics(
+              header: true,
+              child: const Text('PickleTrack'),
+            ),
           ],
         ),
         centerTitle: false,
@@ -96,7 +103,10 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                 if (match == null) return const SizedBox.shrink();
                 return Padding(
                   padding: const EdgeInsets.only(bottom: 16),
-                  child: ResumeBanner(match: match),
+                  child: _DismissibleResumeBanner(
+                    match: match,
+                    ref: ref,
+                  ),
                 );
               },
               loading: () => const SizedBox.shrink(),
@@ -105,6 +115,16 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
 
             // ── Action buttons ──
             _buildActionButtons(theme, standardStartSubtitle, ruleDisplay, playTo, winBy),
+
+            const SizedBox(height: 12),
+
+            // ── Tournament button ──
+            _buildTournamentButton(theme),
+
+            const SizedBox(height: 12),
+
+            // ── Tournaments section ──
+            _buildTournamentsSection(theme),
 
             const SizedBox(height: 32),
 
@@ -163,7 +183,9 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                 }
 
                 final filtered =
-                    filterByPlayerName(matches, _searchQuery);
+                    filterByPlayerName(matches, _searchQuery)
+                        .where((m) => !_deletedMatchIds.contains(m.id))
+                        .toList();
 
                 return Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -241,11 +263,15 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                     else
                       ...filtered.map((m) => _CompletedMatchCard(
                             match: m,
+                            ref: ref,
                             onDeleted: () {
-                              ref.invalidate(completedMatchesProvider);
+                              _deletedMatchIds.add(m.id);
+                              // ignore: unused_result
+                              ref.refresh(completedMatchesProvider);
+                              setState(() {});
                             },
                           )),
-                    if (matches.isNotEmpty)
+                    if (matches.isNotEmpty && _searchQuery.isEmpty)
                       _buildStatsRow(theme, matches),
                   ],
                 );
@@ -426,6 +452,23 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     }
   }
 
+  Widget _buildTournamentButton(ThemeData theme) {
+    return SizedBox(
+      width: double.infinity,
+      child: _ActionCard(
+        icon: Icons.emoji_events_rounded,
+        label: 'Tournament',
+        subtitle: 'Brackets for singles — 4+ players',
+        color: const Color(0xFFE8A317),
+        onTap: () => context.push('/tournament/setup'),
+      ),
+    );
+  }
+
+  Widget _buildTournamentsSection(ThemeData theme) {
+    return _TournamentsList(theme: theme);
+  }
+
   Widget _buildStatsRow(ThemeData theme, List<CompletedMatche> matches) {
     final stats = calculateMatchStats(matches);
 
@@ -548,13 +591,69 @@ return Semantics(
   }
 }
 
+// ── Dismissible Resume Banner ──
+
+class _DismissibleResumeBanner extends StatelessWidget {
+  final ActiveMatchContext match;
+  final WidgetRef ref;
+
+  const _DismissibleResumeBanner({required this.match, required this.ref});
+
+  @override
+  Widget build(BuildContext context) {
+    return Dismissible(
+      key: Key('resume-banner-${match.match.id}'),
+      direction: DismissDirection.endToStart,
+      dismissThresholds: const {DismissDirection.endToStart: 0.5},
+      confirmDismiss: (_) async {
+        return await showConfirmDialog(
+          context,
+          title: 'Delete active match?',
+          message: 'This will remove the active match. You cannot undo this.',
+          confirmLabel: 'Delete',
+          isDestructive: true,
+        );
+      },
+      onDismissed: (_) async {
+        final db = ref.read(databaseProvider);
+        try {
+          await db.transaction(() async {
+            await db.delete(db.activeMatchPlayers).go();
+            await db.delete(db.scoreEvents).go();
+            await db.delete(db.activeMatches).go();
+          });
+          ref.invalidate(activeMatchProvider);
+        } catch (e) {
+          if (context.mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(content: Text('Failed to delete match: $e')),
+            );
+          }
+        }
+      },
+      background: Container(
+        decoration: BoxDecoration(
+          color: Theme.of(context).colorScheme.error,
+          borderRadius: BorderRadius.circular(14),
+        ),
+        alignment: Alignment.centerRight,
+        padding: const EdgeInsets.only(right: 20),
+        child: Icon(Icons.delete_outline_rounded,
+            color: Theme.of(context).colorScheme.onError, size: 28),
+      ),
+      child: ResumeBanner(match: match),
+    );
+  }
+}
+
 // ── Completed Match Card ──
 
 class _CompletedMatchCard extends StatelessWidget {
   final CompletedMatche match;
+  final WidgetRef ref;
   final VoidCallback? onDeleted;
 
-  const _CompletedMatchCard({required this.match, this.onDeleted});
+  const _CompletedMatchCard({required this.match, required this.ref, this.onDeleted});
 
   @override
   Widget build(BuildContext context) {
@@ -581,10 +680,15 @@ class _CompletedMatchCard extends StatelessWidget {
         );
       },
       onDismissed: (_) async {
-        final db = ProviderScope.containerOf(context, listen: false).read(databaseProvider);
-        await (db.delete(db.completedMatches)..where((m) => m.id.equals(match.id))).go();
-        await (db.delete(db.matchEventLog)..where((e) => e.completedMatchId.equals(match.id))).go();
-        onDeleted?.call();
+        final db = ref.read(databaseProvider);
+        try {
+          await (db.delete(db.completedMatches)..where((m) => m.id.equals(match.id))).go();
+          await (db.delete(db.matchEventLog)..where((e) => e.completedMatchId.equals(match.id))).go();
+          onDeleted?.call();
+        } catch (e) {
+          debugPrint('Failed to delete match: $e');
+          onDeleted?.call();
+        }
       },
       background: Container(
         margin: const EdgeInsets.only(bottom: 6),
@@ -629,10 +733,12 @@ class _CompletedMatchCard extends StatelessWidget {
                       ),
                       const SizedBox(height: 2),
                       Text(
-                        match.type == 'singles' ? 'Singles' : 'Doubles',
+                        '${match.type == 'singles' ? 'Singles' : 'Doubles'} · ${_formatPlayerNames(match)}',
                         style: theme.textTheme.bodySmall?.copyWith(
                           color: theme.colorScheme.onSurfaceVariant,
                         ),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
                       ),
                     ],
                   ),
@@ -688,6 +794,247 @@ class _CompletedMatchCard extends StatelessWidget {
   }
 
   String _formatScoreSummary(String json) => formatScoreSummary(json);
+
+  String _formatPlayerNames(CompletedMatche match) {
+    try {
+      final aList = jsonDecode(match.teamAPlayers) as List<dynamic>;
+      final bList = jsonDecode(match.teamBPlayers) as List<dynamic>;
+      final aNames = aList.map((e) => e.toString()).join(' & ');
+      final bNames = bList.map((e) => e.toString()).join(' & ');
+      return '$aNames vs $bNames';
+    } catch (_) {
+      return '';
+    }
+  }
+}
+
+// ── Tournaments List (isolated to prevent full HomeScreen rebuilds) ──
+
+class _TournamentsList extends ConsumerStatefulWidget {
+  final ThemeData theme;
+
+  const _TournamentsList({required this.theme});
+
+  @override
+  ConsumerState<_TournamentsList> createState() => _TournamentsListState();
+}
+
+class _TournamentsListState extends ConsumerState<_TournamentsList> {
+  final Set<int> _deletedTournamentIds = {};
+
+  @override
+  Widget build(BuildContext context) {
+    final tournaments = ref.watch(tournamentsProvider);
+    return tournaments.when(
+      data: (list) {
+        if (list.isEmpty) return const SizedBox.shrink();
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Icon(Icons.emoji_events_outlined,
+                    size: 18, color: widget.theme.colorScheme.onSurfaceVariant),
+                const SizedBox(width: 6),
+                Text('Tournaments',
+                    style: widget.theme.textTheme.titleSmall?.copyWith(
+                      color: widget.theme.colorScheme.onSurfaceVariant,
+                      fontWeight: FontWeight.w600,
+                    )),
+              ],
+            ),
+            const SizedBox(height: 10),
+            ...list
+                .where((t) => !_deletedTournamentIds.contains(t.id))
+                .map((t) => _DismissibleTournamentCard(
+                      tournament: t,
+                      ref: ref,
+                      onDeleted: () {
+                        setState(() => _deletedTournamentIds.add(t.id));
+                        ref.invalidate(tournamentsProvider);
+                      },
+                    )),
+          ],
+        );
+      },
+      loading: () => const SizedBox.shrink(),
+      error: (_, __) => const SizedBox.shrink(),
+    );
+  }
+}
+
+// ── Dismissible Tournament Card ──
+
+class _DismissibleTournamentCard extends StatelessWidget {
+  final Tournament tournament;
+  final WidgetRef ref;
+  final VoidCallback? onDeleted;
+
+  const _DismissibleTournamentCard({
+    required this.tournament,
+    required this.ref,
+    this.onDeleted,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Dismissible(
+      key: Key('tournament-${tournament.id}'),
+      direction: DismissDirection.endToStart,
+      dismissThresholds: const {DismissDirection.endToStart: 0.5},
+      confirmDismiss: (_) async {
+        return await showConfirmDialog(
+          context,
+          title: 'Delete tournament?',
+          message:
+              'This permanently removes "${tournament.name}" and all its bracket data.',
+          confirmLabel: 'Delete',
+          isDestructive: true,
+        );
+      },        onDismissed: (_) async {
+        final db = ref.read(databaseProvider);
+        try {
+          await db.deleteTournament(tournament.id);
+          onDeleted?.call();
+        } catch (e) {
+          debugPrint('Failed to delete tournament: $e');
+          onDeleted?.call();
+        }
+      },
+      background: Container(
+        margin: const EdgeInsets.only(bottom: 6),
+        decoration: BoxDecoration(
+          color: Theme.of(context).colorScheme.error,
+          borderRadius: BorderRadius.circular(12),
+        ),
+        alignment: Alignment.centerRight,
+        padding: const EdgeInsets.only(right: 20),
+        child: Icon(
+          Icons.delete_outline_rounded,
+          color: Theme.of(context).colorScheme.onError,
+          size: 28,
+        ),
+      ),
+      child: _TournamentCard(
+        tournament: tournament,
+        onTap: () => context.push('/tournament/${tournament.id}'),
+      ),
+    );
+  }
+}
+
+// ── Tournament Card ──
+
+class _TournamentCard extends StatelessWidget {
+  final Tournament tournament;
+  final VoidCallback onTap;
+
+  const _TournamentCard({required this.tournament, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final isComplete = tournament.status == 'completed';
+    final formatLabel = tournament.format == 'single_elim'
+        ? 'Single Elim'
+        : tournament.format == 'double_elim'
+            ? 'Double Elim'
+            : 'Round Robin';
+    final dateLabel = _formatDate(tournament.createdAt);
+
+    return Card(
+      margin: const EdgeInsets.only(bottom: 6),
+      elevation: 0,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(12),
+        child: Padding(
+          padding: const EdgeInsets.all(14),
+          child: Row(
+            children: [
+              Container(
+                width: 4,
+                height: 48,
+                decoration: BoxDecoration(
+                  color: isComplete ? courtGreen : const Color(0xFFE8A317),
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      tournament.name,
+                      style: theme.textTheme.titleMedium?.copyWith(
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      '$formatLabel · ${tournament.type == 'singles' ? 'Singles' : 'Doubles'}',
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: theme.colorScheme.onSurfaceVariant,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.end,
+                children: [
+                  if (isComplete)
+                    Container(
+                      padding:
+                          const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                      decoration: BoxDecoration(
+                        color: courtGreen.withValues(alpha: 0.15),
+                        borderRadius: BorderRadius.circular(6),
+                      ),
+                      child: Text('Done',
+                          style: theme.textTheme.labelSmall?.copyWith(
+                              color: courtGreen,
+                              fontWeight: FontWeight.w700)),
+                    )
+                  else
+                    Container(
+                      padding:
+                          const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFE8A317).withValues(alpha: 0.15),
+                        borderRadius: BorderRadius.circular(6),
+                      ),
+                      child: Text('Live',
+                          style: theme.textTheme.labelSmall?.copyWith(
+                              color: const Color(0xFFE8A317),
+                              fontWeight: FontWeight.w700)),
+                    ),
+                  const SizedBox(height: 2),
+                  Text(dateLabel,
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: theme.colorScheme.onSurfaceVariant,
+                      )),
+                ],
+              ),
+              const SizedBox(width: 8),
+              Icon(Icons.chevron_right_rounded,
+                  color: theme.colorScheme.onSurfaceVariant, size: 20),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  String _formatDate(DateTime dt) {
+    final now = DateTime.now();
+    final diff = now.difference(dt);
+    if (diff.inHours < 24) return '${diff.inHours}h ago';
+    if (diff.inDays < 7) return '${diff.inDays}d ago';
+    return '${dt.month}/${dt.day}/${dt.year}';
+  }
 }
 
 // ── App Logo ──

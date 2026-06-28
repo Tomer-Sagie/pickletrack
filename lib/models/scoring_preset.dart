@@ -21,9 +21,14 @@ class ScoringPreset {
   static const List<ScoringPreset> defaults = [quick, standard, tournament];
 
   /// Creates a custom preset. Validates play-to (1–99) and win-by (1–10).
+  /// Throws [ArgumentError] for out-of-range values (active in release builds).
   factory ScoringPreset.custom({required int playTo, required int winBy}) {
-    assert(playTo >= 1 && playTo <= 99, 'playTo must be 1–99');
-    assert(winBy >= 1 && winBy <= 10, 'winBy must be 1–10');
+    if (playTo < 1 || playTo > 99) {
+      throw ArgumentError.value(playTo, 'playTo', 'must be 1–99');
+    }
+    if (winBy < 1 || winBy > 10) {
+      throw ArgumentError.value(winBy, 'winBy', 'must be 1–10');
+    }
     return ScoringPreset(
       name: 'Custom',
       playTo: playTo,
