@@ -150,12 +150,12 @@ Future<Finder> pumpGolden(WidgetTester tester, LiveMatchState state) async {
         themeModeProvider.overrideWith(StubThemeModeNotifier.new),
         liveMatchProvider.overrideWith((ref) => _TestNotifier(ref, state)),
       ],
-      child: MaterialApp(
+      child: const MaterialApp(
         home: SizedBox(
           key: screenKey,
           width: 1080,
           height: 2160,
-          child: const LiveMatchScreen(),
+          child: LiveMatchScreen(),
         ),
       ),
     ),
