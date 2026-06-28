@@ -75,34 +75,40 @@ The Firebase App Distribution Gradle plugin is already configured in `android/ap
 3. Run:
    ```bash
    ./gradlew appDistributionUploadRelease
-   ```
+   ```### 6. iOS Distribution (Deferred)
 
-### 6. iOS Distribution
+iOS builds require **macOS + Xcode** (not available on Windows) and an **Apple Developer Program** membership ($99/year) for code signing.
 
-Firebase App Distribution for iOS uses the **Firebase CLI** (the Gradle plugin is Android-only):
+The iOS app is already registered in Firebase (`GoogleService-Info.plist` is in place) and ready to go whenever you get access to a Mac. At that point, you can:
+- Build: `flutter build ipa --release`
+- Distribute: `firebase appdistribution:distribute build/ios/ipa/*.ipa --app 1:420306123685:ios:ab4c7ffcf129741ceb064c --groups "qa-team"`
 
-```bash
-# Build the iOS archive on macOS
-flutter build ipa --release
+### 7. CI/CD with GitHub Actions
 
-# Distribute via Firebase CLI
-firebase appdistribution:distribute build/ios/ipa/*.ipa \
-  --app <YOUR_IOS_FIREBASE_APP_ID> \
-  --groups "qa-team" \
-  --release-notes-file release-notes.txt
-```
+The CI pipeline at `.github/workflows/firebase-distribution.yml` has two parallel jobs that run on every push to `main`:
+- **`android`** — builds APK, uploads to Firebase App Distribution (`qa-team` group)
+- **`web`** — builds `flutter build web`, deploys to Firebase Hosting
 
-> **Note:** If you cloned this repo on Windows, iOS platform files may not exist. Run `flutter create .` on macOS to generate them before building.
+**Secrets needed** (GitHub → Settings → Secrets and variables → Actions):
+- `FIREBASE_SERVICE_ACCOUNT_JSON` — full service account JSON (already set)
 
-### 7. CI/CD with GitHub Actions (Optional)
+**Service account permissions needed** (in Google Cloud Console → IAM):
+- `Firebase App Distribution Admin`
+- `Firebase Hosting Admin`
 
-A workflow template is provided at `.github/workflows/firebase-distribution.yml`. To enable it:
+**APIs to enable** (in Google Cloud Console → APIs & Services):
+- Firebase App Distribution API
+- Firebase Hosting API### 8. Web Hosting (GitHub Pages)
 
-1. Add these secrets in **GitHub → Settings → Secrets and variables → Actions**:
-   - `FIREBASE_APP_ID` — your Android Firebase app ID
-   - `FIREBASE_SERVICE_ACCOUNT_JSON` — the full JSON content of a Firebase service account key (with **Firebase App Distribution Admin** role)
-2. Uncomment the `push` trigger in the workflow file
-3. Push to `main` — the APK will build and distribute automatically
+The app is also deployed as a **web app** on GitHub Pages — completely free, no billing account needed. Testers open a URL from any device.
+
+**Your web app URL:** `https://tomer-sagie.github.io/pickletrack`
+
+**One-time setup**:
+1. Go to your repo → **Settings** → **Pages**
+2. Source: **GitHub Actions** → **Save**
+
+After the first CI push, the site will be live at the URL above.
 
 ## Troubleshooting
 

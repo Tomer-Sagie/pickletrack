@@ -29,14 +29,26 @@ Use this checklist while creating your Firebase project. All values are pre-fill
 
 ## Step 3: Register iOS App
 
-- [ ] In Firebase Console → Project Overview, click **Add app** → **iOS**
-- [ ] Bundle ID: **`com.example.pickletrack`**
+- [x] In Firebase Console → Project Overview, click **Add app** → **iOS**
+- [x] Bundle ID: **`com.example.pickletrack`**
   - *This must match `PRODUCT_BUNDLE_IDENTIFIER` in your Xcode project*
-- [ ] App nickname: **`PickleTrack iOS`**
-- [ ] Click **Register app**
-- [ ] Download **`GoogleService-Info.plist`**
-- [ ] Place it at: **`ios/Runner/GoogleService-Info.plist`**
-- [ ] Open `ios/Runner.xcworkspace` in Xcode and verify the plist is included in the target
+- [x] App nickname: **`PickleTrack iOS`**
+- [x] Click **Register app**
+- [x] Download **`GoogleService-Info.plist`**
+- [x] Place it at: **`ios/Runner/GoogleService-Info.plist`**
+- [x] Open `ios/Runner.xcworkspace` in Xcode and verify the plist is included in the target
+
+> ✅ iOS app registered in Firebase. App ID: `1:420306123685:ios:ab4c7ffcf129741ceb064c`
+
+---
+
+## Step 4: iOS Distribution (Deferred)
+
+iOS builds require **macOS + Xcode** and **Apple Developer Program** ($99/year). Neither is available on your current Windows setup.
+
+- [x] iOS app registered in Firebase (App ID: `1:420306123685:ios:ab4c7ffcf129741ceb064c`)
+- [x] `GoogleService-Info.plist` in place
+- [ ] Deferred until macOS + Apple Developer are available
 
 ---
 
@@ -49,7 +61,19 @@ Use this checklist while creating your Firebase project. All values are pre-fill
 
 ---
 
-## Step 5: Set Up App Distribution
+## Step 5: Enable GitHub Pages for Web App
+
+The web app is deployed to GitHub Pages via GitHub Actions — no branch, no billing.
+
+- [ ] Go to your repo → **Settings** → **Pages**
+- [ ] Source: **GitHub Actions**
+- [ ] **Save**
+
+> The web app will be live at **https://tomer-sagie.github.io/pickletrack** after the first CI push.
+
+---
+
+## Step 6: Set Up App Distribution
 
 ### Create a tester group
 - [ ] In Firebase Console → **Release & Monitor** → **App Distribution**
@@ -72,7 +96,7 @@ Use this checklist while creating your Firebase project. All values are pre-fill
 
 ---
 
-## Step 6: Verify Everything Works
+## Step 7: Verify Everything Works
 
 ```bash
 flutter clean
