@@ -14,6 +14,17 @@ import 'package:pickletrack/screens/setup/setup_screen.dart';
 
 import '../helpers/stubs.dart';
 
+// Goldens are inherently cross-platform-unstable (Windows-captured PNGs
+// fail on Ubuntu CI due to font/antialiasing differences) — see
+// `test/live_match_screen_golden_test.dart` for the skip-on-CI fix.
+//
+// The Match Details Home IconButton wraps itself in a Tooltip at build
+// time, so `find.byTooltip('Home')` matches the Tooltip element — and
+// `find.descendant(of: tooltip, matching: IconButton)` matches nothing
+// because the IconButton is the Tooltip's *ancestor*, not descendant.
+// Use `find.ancestor(of: tooltip, matching: IconButton)` to find the
+// IconButton whose render box sits inside the AppBar hit-test region.
+
 void main() {
   group('Full Match Lifecycle Integration', () {
     late AppDatabase db;
@@ -230,10 +241,17 @@ void main() {
         expect(find.text('Player A1'), findsAtLeastNWidgets(1));
         expect(find.text('Player B1'), findsAtLeastNWidgets(1));
 
-        // Tooltip-based finder (decouples lookup from AppBar layout +
-        // Flutter SDK icon codepoint drift) — see `pumpApp()` for why
-        // the canvas is widened.
-        await tester.tap(find.byTooltip('Home'));
+        // The IconButton is the ANCESTOR of the tooltip widget (built at
+        // IconButton build-time wraps with a Tooltip(message: 'Home')).
+        // Walking up from the tooltip to find the IconButton gives a
+        // tappable whose render box sits inside the AppBar hit-test
+        // region — unlike the tooltip surrogate which extends past it.
+        await tester.tap(
+          find.ancestor(
+            of: find.byTooltip('Home'),
+            matching: find.byType(IconButton),
+          ),
+        );
         await pumpUntilFound(tester, find.byType(HomeScreen));
 
         // -- Home Screen --
