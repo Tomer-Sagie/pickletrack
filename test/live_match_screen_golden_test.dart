@@ -1,5 +1,3 @@
-import 'dart:io' show Platform;
-
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -13,19 +11,6 @@ import 'package:pickletrack/screens/live/live_match_screen.dart';
 import 'package:pickletrack/services/scoring_service.dart';
 
 import 'helpers/stubs.dart';
-
-// Golden tests below are skipped on CI because pixel-fidelity rendering
-// drifts across platforms: the PNGs under `test/goldens/` were captured
-// on Windows and routinely fail on Ubuntu CI with ~38% pixel diff (font
-// fallback + subpixel antialiasing). Coarse matchesGoldenFile tolerances
-// still can't bridge structural reflow caused by different font metrics.
-//
-// To regenerate goldens locally after a deliberate UI change:
-//   flutter test --update-goldens test/live_match_screen_golden_test.dart
-// then commit the updated PNGs. The structural assertions in
-// `live_match_screen_test.dart` already cover the same visual contracts
-// on CI; these goldens are belt-and-braces for humans.
-bool get _isCI => Platform.environment.containsKey('CI');
 
 /// Stub notifier — same as in live_match_screen_test.dart.
 class _TestNotifier extends LiveMatchNotifier {
@@ -185,12 +170,6 @@ Future<Finder> pumpGolden(WidgetTester tester, LiveMatchState state) async {
 void main() {
   group('LiveMatchScreen golden', () {
     testWidgets('initial state – doubes side-out 0-0-2', (tester) async {
-      if (_isCI) {
-        markTestSkipped(
-          'Golden PNGs are cross-platform-unstable; regenerate locally.',
-        );
-        return;
-      }
       await pumpGolden(tester, buildPlayedState());
       await expectLater(
         find.byKey(const Key('golden-target')),
@@ -199,12 +178,6 @@ void main() {
     });
 
     testWidgets('after points – doubes side-out 3-1-1', (tester) async {
-      if (_isCI) {
-        markTestSkipped(
-          'Golden PNGs are cross-platform-unstable; regenerate locally.',
-        );
-        return;
-      }
       await pumpGolden(tester, buildPlayedState(pointsTeamA: 3, pointsTeamB: 1));
       await expectLater(
         find.byKey(const Key('golden-target')),
@@ -213,12 +186,6 @@ void main() {
     });
 
     testWidgets('rally scoring mode', (tester) async {
-      if (_isCI) {
-        markTestSkipped(
-          'Golden PNGs are cross-platform-unstable; regenerate locally.',
-        );
-        return;
-      }
       await pumpGolden(
         tester,
         buildPlayedState(scoringRule: 'rally', pointsTeamA: 2, pointsTeamB: 2),
@@ -230,12 +197,6 @@ void main() {
     });
 
     testWidgets('singles mode – initial state', (tester) async {
-      if (_isCI) {
-        markTestSkipped(
-          'Golden PNGs are cross-platform-unstable; regenerate locally.',
-        );
-        return;
-      }
       final state = buildPlayedState(
         matchType: 'singles',
         pointsTeamA: 5,
