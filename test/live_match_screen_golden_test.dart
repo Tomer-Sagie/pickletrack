@@ -196,7 +196,7 @@ void main() {
       );
     });
 
-    testWidgets('singles mode – no court diagram', (tester) async {
+    testWidgets('singles mode – initial state', (tester) async {
       final state = buildPlayedState(
         matchType: 'singles',
         pointsTeamA: 5,
