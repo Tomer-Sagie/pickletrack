@@ -1,16 +1,24 @@
-# pickletrack
+# PickleTrack
 
-A new Flutter project.
+A pickleball match tracking and scoring app built with Flutter.
+
+## Try it now
+
+🌐 **Web app:** [tomer-sagie.github.io/pickletrack](https://tomer-sagie.github.io/pickletrack)
+
+Open on any device — iPhone, Android, or desktop. No install needed.
 
 ## Getting Started
 
-This project is a starting point for a Flutter application.
+```bash
+flutter pub get
+flutter run
+```
 
-A few resources to get you started if this is your first Flutter project:
+## Builds
 
-- [Lab: Write your first Flutter app](https://docs.flutter.dev/get-started/codelab)
-- [Cookbook: Useful Flutter samples](https://docs.flutter.dev/cookbook)
-
-For help getting started with Flutter development, view the
-[online documentation](https://docs.flutter.dev/), which offers tutorials,
-samples, guidance on mobile development, and a full API reference.
+| Platform | Status |
+|----------|--------|
+| Android APK | Auto-distributed to Firebase on push to `main` |
+| Web | Auto-deployed to GitHub Pages on push to `main` |
+| iOS | Deferred (requires macOS + Apple Developer) |
