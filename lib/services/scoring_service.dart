@@ -174,11 +174,11 @@ class ScoringService {
       teamBGamesWon: 0,
       currentServerId: startingServerId,
       serverNumber: initialServerNumber,
-      serverTeam: startingServerTeam == Team.A ? 'A' : 'B',
+      serverTeam: startingServerTeam.name,
       serverSide: serverSide,
       playerSides: Map.from(initialPlayerSides),
       playerTeams: Map.from(initialPlayerTeams),
-      firstServerTeam: startingServerTeam == Team.A ? 'A' : 'B',
+      firstServerTeam: startingServerTeam.name,
     );
   }
 
@@ -326,8 +326,8 @@ class ScoringService {
       return ScoreResult(
         newState: newState,
         eventType: 'match_end',
-        scorerTeam: winner == Team.A ? 'A' : 'B',
-        description: 'Match over! Team ${winner == Team.A ? "A" : "B"} wins!',
+        scorerTeam: winner.name,
+        description: 'Match over! Team ${winner.name} wins!',
       );
     }
 
@@ -373,7 +373,7 @@ class ScoringService {
     return ScoreResult(
       newState: newState,
       eventType: 'game_end',
-      scorerTeam: winner == Team.A ? 'A' : 'B',
+      scorerTeam: winner.name,
       description:
           'Game $nextGame starting — Team $newServerTeam serves',
     );
