@@ -8,11 +8,16 @@ Future<bool?> showConfirmDialog(
   String cancelLabel = 'Cancel',
   bool isDestructive = false,
 }) {
+  // AlertDialog builds its own semantic tree (title, content, action
+  // buttons). Wrapping it in an outer `Semantics(label: '$title —
+  // $message')` does NOT need `container: true` to be useful — but it
+  // does cause screen readers to announce the title+message *twice*
+  // (once from the wrapper's label, then again via the inner
+  // `Text(title)` / `Text(message)`). Trust the dialog's built-in
+  // semantic structure and let Material announce each piece once.
   return showDialog<bool>(
     context: context,
-    builder: (context) => Semantics(
-      label: '$title — $message',
-      child: AlertDialog(
+    builder: (context) => AlertDialog(
       title: Text(title),
       content: Text(message),
       actions: [
@@ -30,7 +35,6 @@ Future<bool?> showConfirmDialog(
           child: Text(confirmLabel),
         ),
       ],
-    ),
     ),
   );
 }

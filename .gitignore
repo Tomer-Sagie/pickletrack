@@ -46,3 +46,8 @@ app.*.map.json
 /android/app/debug
 /android/app/profile
 /android/app/release
+
+# Local app-store / marketing material not part of the build. Keep
+# the working tree clean so a stray `git add -A` doesn't try to push
+# a 100+ MB marketing video.
+brag-output/
