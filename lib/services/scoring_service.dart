@@ -229,7 +229,7 @@ class ScoringService {
       final newState = _handleSideOut(
         scored,
         forceFullSideOut: true,
-        winningTeam: _teamKey(scoringTeam),
+        winningTeam: scoringTeam.name,
       ).newState;
 
       if (newState.isGameOver) {
@@ -239,7 +239,7 @@ class ScoringService {
       return ScoreResult(
         newState: newState,
         eventType: 'point',
-        scorerTeam: _teamKey(scoringTeam),
+        scorerTeam: scoringTeam.name,
       );
     }
 
@@ -392,12 +392,6 @@ class ScoringService {
         : state.copyWith(teamBScore: state.teamBScore + 1);
   }
 
-  /// Compact key for the team — 'A' or 'B'. Used for the
-  /// `scorerTeam` field on [ScoreResult], the `winningTeam` argument
-  /// to [_handleSideOut], and any other place the file stores a team
-  /// as a single-character String.
-  static String _teamKey(Team t) => t == Team.A ? 'A' : 'B';
-
   /// Returns the [team]'s current score. Sibling helper to
   /// [_incrementScore] so the singles side-alternation path doesn't
   /// need a `servingTeam == Team.A ? newState.teamAScore :
@@ -429,7 +423,7 @@ class ScoringService {
     return ScoreResult(
       newState: newState,
       eventType: 'point',
-      scorerTeam: _teamKey(scoringTeam),
+      scorerTeam: scoringTeam.name,
     );
   }
 
