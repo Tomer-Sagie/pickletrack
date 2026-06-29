@@ -205,13 +205,7 @@ class ScoringService {
     if (scoringTeam == servingTeam) {
       // Serving team scores — increment their score, then apply the
       // shared side-alternation + game-end check.
-      final scored = state.copyWith(
-        teamAScore:
-            scoringTeam == Team.A ? state.teamAScore + 1 : state.teamAScore,
-        teamBScore:
-            scoringTeam == Team.B ? state.teamBScore + 1 : state.teamBScore,
-      );
-      return _applyServedPoint(scored, scoringTeam);
+      return _applyServedPoint(_incrementScore(state, scoringTeam), scoringTeam);
     } else {
       // Non-serving team — side-out (no point scored)
       final winningTeam = state.serverTeam == 'A' ? 'B' : 'A';
@@ -223,12 +217,7 @@ class ScoringService {
   static ScoreResult _recordRallyPoint(MatchState state, Team scoringTeam) {
     // Increment the scoring team's score first; the rest of the
     // logic is shared with side-out scoring via [_applyServedPoint].
-    final scored = state.copyWith(
-      teamAScore:
-          scoringTeam == Team.A ? state.teamAScore + 1 : state.teamAScore,
-      teamBScore:
-          scoringTeam == Team.B ? state.teamBScore + 1 : state.teamBScore,
-    );
+    final scored = _incrementScore(state, scoringTeam);
 
     final servingTeam =
         state.serverTeam == 'A' ? Team.A : Team.B;
@@ -240,7 +229,7 @@ class ScoringService {
       final newState = _handleSideOut(
         scored,
         forceFullSideOut: true,
-        winningTeam: scoringTeam == Team.A ? 'A' : 'B',
+        winningTeam: _teamKey(scoringTeam),
       ).newState;
 
       if (newState.isGameOver) {
@@ -250,47 +239,13 @@ class ScoringService {
       return ScoreResult(
         newState: newState,
         eventType: 'point',
-        scorerTeam: scoringTeam == Team.A ? 'A' : 'B',
+        scorerTeam: _teamKey(scoringTeam),
       );
     }
 
     // Serving team scored in rally scoring — same side-alternation
     // and game-end rules as side-out scoring.
     return _applyServedPoint(scored, scoringTeam);
-  }
-
-  /// Shared post-score logic for the case where the serving team
-  /// scored: alternate the server's side (doubles: via partner
-  /// swap; singles: based on score parity), then either return a
-  /// `point` event or hand off to game-end handling.
-  ///
-  /// Both side-out and rally scoring use this helper — previously
-  /// the two paths had a 25-line copy-pasted block that drifted
-  /// independently on the last couple of refactors. Now there's
-  /// exactly one place to keep the rules in sync.
-  static ScoreResult _applyServedPoint(MatchState state, Team scoringTeam) {
-    final servingTeam =
-        state.serverTeam == 'A' ? Team.A : Team.B;
-    var newState = state;
-    if (state.type == MatchType.doubles) {
-      newState = _alternateServerSide(newState);
-    } else {
-      // Singles: side determined by score parity.
-      final serverScore = servingTeam == Team.A
-          ? newState.teamAScore
-          : newState.teamBScore;
-      newState = newState.copyWith(
-        serverSide: serverScore.isEven ? 'right' : 'left',
-      );
-    }
-    if (newState.isGameOver) {
-      return _handleGameEnd(newState, scoringTeam);
-    }
-    return ScoreResult(
-      newState: newState,
-      eventType: 'point',
-      scorerTeam: scoringTeam == Team.A ? 'A' : 'B',
-    );
   }
 
   // ── Side-Out ──
@@ -425,6 +380,58 @@ class ScoringService {
   }
 
   // ── Helpers ──
+
+  /// Returns a [MatchState] with [team]'s score incremented by 1 and
+  /// the other team's score untouched. Centralises the copyWith
+  /// conditional that previously appeared inline at every call site
+  /// (where `scoringTeam == Team.A ? state.teamAScore + 1 :
+  /// state.teamAScore` was duplicated and easy to typo).
+  static MatchState _incrementScore(MatchState state, Team team) {
+    return team == Team.A
+        ? state.copyWith(teamAScore: state.teamAScore + 1)
+        : state.copyWith(teamBScore: state.teamBScore + 1);
+  }
+
+  /// Compact key for the team — 'A' or 'B'. Used for the
+  /// `scorerTeam` field on [ScoreResult], the `winningTeam` argument
+  /// to [_handleSideOut], and any other place the file stores a team
+  /// as a single-character String.
+  static String _teamKey(Team t) => t == Team.A ? 'A' : 'B';
+
+  /// Returns the [team]'s current score. Sibling helper to
+  /// [_incrementScore] so the singles side-alternation path doesn't
+  /// need a `servingTeam == Team.A ? newState.teamAScore :
+  /// newState.teamBScore` conditional.
+  static int _teamScore(MatchState state, Team team) =>
+      team == Team.A ? state.teamAScore : state.teamBScore;
+
+  /// Shared post-score logic for the case where the serving team
+  /// scored: alternate the server's side (doubles: via partner
+  /// swap; singles: based on score parity), then either return a
+  /// `point` event or hand off to game-end handling.
+  ///
+  /// Both side-out and rally scoring use this helper — previously
+  /// the two paths had a 25-line copy-pasted block that drifted
+  /// independently on the last couple of refactors. Now there's
+  /// exactly one place to keep the rules in sync.
+  static ScoreResult _applyServedPoint(MatchState state, Team scoringTeam) {
+    final servingTeam =
+        state.serverTeam == 'A' ? Team.A : Team.B;
+    final newState = state.type == MatchType.doubles
+        ? _alternateServerSide(state)
+        : state.copyWith(
+            serverSide:
+                _teamScore(state, servingTeam).isEven ? 'right' : 'left',
+          );
+    if (newState.isGameOver) {
+      return _handleGameEnd(newState, scoringTeam);
+    }
+    return ScoreResult(
+      newState: newState,
+      eventType: 'point',
+      scorerTeam: _teamKey(scoringTeam),
+    );
+  }
 
   /// Alternates the server's side in doubles (left ↔ right).
   /// Both players on the serving team swap positions.
