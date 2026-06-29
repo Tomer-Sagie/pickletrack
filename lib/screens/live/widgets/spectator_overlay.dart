@@ -45,9 +45,16 @@ class SpectatorOverlay extends ConsumerWidget {
       );
     }
 
-    final aNames = filteredTeamNames(state, 'A', matchType: state.match.type)
+    // Shape the player list as records before passing it to the
+    // zero-dep helper — the helper no longer takes `LiveMatchState`.
+    final playerList = state.players
+        .map((p) => (name: p.name, team: p.team))
+        .toList(growable: false);
+    final aNames = filteredTeamNames(playerList, 'A',
+            matchType: state.match.type)
         .join(' & ');
-    final bNames = filteredTeamNames(state, 'B', matchType: state.match.type)
+    final bNames = filteredTeamNames(playerList, 'B',
+            matchType: state.match.type)
         .join(' & ');
 
     return GestureDetector(

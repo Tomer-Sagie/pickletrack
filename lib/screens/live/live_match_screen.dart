@@ -759,8 +759,10 @@ class _LiveMatchScreenState extends ConsumerState<LiveMatchScreen> {
     final teamColor = serverTeam == 'A' ? courtGreen : courtBlue;
     final callout = state.scoreCallout;
 
-    final aNames = _teamNames(state, 'A');
-    final bNames = _teamNames(state, 'B');
+    final aNames = filteredTeamNames(_playerList(state), 'A',
+        matchType: state.match.type);
+    final bNames = filteredTeamNames(_playerList(state), 'B',
+        matchType: state.match.type);
 
     // Compute game-point status here so we can pass it to each
     // _scoreColumn — the leader gets a star dot next to its score.
@@ -913,12 +915,18 @@ class _LiveMatchScreenState extends ConsumerState<LiveMatchScreen> {
     );
   }
 
-  /// Delegates to the top-level [filteredTeamNames] so the in-screen
-  /// helper and the spectator overlay share a single source of truth
-  /// for trim/filter + "Player N" fallback logic.
-  List<String> _teamNames(LiveMatchState state, String team) {
-    return filteredTeamNames(state, team, matchType: state.match.type);
-  }
+  // The in-screen `_teamNames(state, team)` wrapper that used to live
+  // here forwarded to the imported `filteredTeamNames` and added
+  // nothing. Call sites now shape the player list themselves via the
+  // local [_playerList] helper below before passing it to
+  // [filteredTeamNames].
+  //
+  // Kept as a local helper (not a free function) so we don't import
+  // the providers barrel here, which would drag a Riverpod
+  // dependency into a screen that's already a ConsumerStatefulWidget.
+  List<PlayerNameAndTeam> _playerList(LiveMatchState state) => state.players
+      .map((p) => (name: p.name, team: p.team))
+      .toList(growable: false);
 
   /// True iff [team] can win the next point. Called by both the
   /// top-of-card banner ([_buildGamePointIndicator]) and the per-
@@ -948,8 +956,10 @@ class _LiveMatchScreenState extends ConsumerState<LiveMatchScreen> {
     final isRally = state.scoringRule == 'rally';
     final servingA = state.isTeamServing(Team.A);
     final servingB = state.isTeamServing(Team.B);
-    final aNames = _teamNames(state, 'A');
-    final bNames = _teamNames(state, 'B');
+    final aNames = filteredTeamNames(_playerList(state), 'A',
+        matchType: state.match.type);
+    final bNames = filteredTeamNames(_playerList(state), 'B',
+        matchType: state.match.type);
     final aLabel = aNames.isNotEmpty ? aNames.join(' & ') : 'Team A';
     final bLabel = bNames.isNotEmpty ? bNames.join(' & ') : 'Team B';
     // Side-out badge: only show when the OPPOSITE team is serving AND this
