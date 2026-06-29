@@ -3,7 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../providers/live_match_provider.dart';
 import '../../../theme/colors.dart';
-import 'live_match_screen.dart' show filteredTeamNames;
+import '../live_match_helpers.dart';
 
 /// Full-screen spectator overlay shown from the Live Pause Menu.
 ///
@@ -14,6 +14,9 @@ import 'live_match_screen.dart' show filteredTeamNames;
 /// Extracted from `live_match_screen.dart` so the widget is
 /// independently testable and the parent screen file doesn't grow
 /// unbounded as more dialog/overlay types are added.
+///
+/// Imports [filteredTeamNames] from the sibling helpers file (not
+/// the parent screen) to avoid a circular-style dependency.
 class SpectatorOverlay extends ConsumerWidget {
   const SpectatorOverlay({super.key});
 

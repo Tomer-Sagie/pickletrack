@@ -16,25 +16,16 @@ import '../../widgets/confirm_dialog.dart';
 import '../../widgets/shimmer.dart';
 import 'court_diagram.dart';
 import 'tutorial_overlay.dart';
+import 'live_match_helpers.dart';
 import 'widgets/match_timer_subtitle.dart';
 import 'widgets/pulse_dot.dart';
 import 'widgets/spectator_overlay.dart';
 
-/// Exposed at top-level so stateless widgets (like [_SpectatorOverlay])
-/// share the same trim/filter + "Player N" fallback without duplicating
-/// the chain. The in-screen counterpart is [_LiveMatchScreenState._teamNames].
-List<String> filteredTeamNames(LiveMatchState state, String team,
-    {required String matchType}) {
-  final names = state.players
-      .where((p) => p.team == team)
-      .map((p) => p.name.trim())
-      .where((n) => n.isNotEmpty)
-      .toList();
-  if (names.isEmpty) {
-    return matchType == 'singles' ? ['Player 1'] : ['Player 1', 'Player 2'];
-  }
-  return names;
-}
+// Previously this file hosted a top-level `filteredTeamNames`
+// function. It was extracted to `live_match_helpers.dart` so sibling
+// widgets (e.g. `widgets/spectator_overlay.dart`) can use it
+// without importing this screen file (which would otherwise create
+// a circular-style dependency).
 
 class LiveMatchScreen extends ConsumerStatefulWidget {
   const LiveMatchScreen({super.key});
