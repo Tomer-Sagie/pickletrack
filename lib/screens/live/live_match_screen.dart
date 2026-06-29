@@ -16,6 +16,9 @@ import '../../widgets/confirm_dialog.dart';
 import '../../widgets/shimmer.dart';
 import 'court_diagram.dart';
 import 'tutorial_overlay.dart';
+import 'widgets/match_timer_subtitle.dart';
+import 'widgets/pulse_dot.dart';
+import 'widgets/spectator_overlay.dart';
 
 /// Exposed at top-level so stateless widgets (like [_SpectatorOverlay])
 /// share the same trim/filter + "Player N" fallback without duplicating
@@ -450,7 +453,7 @@ class _LiveMatchScreenState extends ConsumerState<LiveMatchScreen> {
     showDialog(
       context: context,
       barrierDismissible: true,
-      builder: (ctx) => const _SpectatorOverlay(),
+      builder: (ctx) => const SpectatorOverlay(),
     );
   }
 
@@ -653,7 +656,7 @@ class _LiveMatchScreenState extends ConsumerState<LiveMatchScreen> {
               style: theme.textTheme.titleSmall
                   ?.copyWith(fontWeight: FontWeight.w700)),
         ),
-        _MatchTimerSubtitle(
+        MatchTimerSubtitle(
           ruleLabel: ruleLabel,
           isDoubles: state.isDoubles,
           createdAt: state.match.createdAt,
@@ -885,7 +888,7 @@ class _LiveMatchScreenState extends ConsumerState<LiveMatchScreen> {
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
             if (isGamePoint) ...[
-              _PulseDot(color: accentColor),
+              PulseDot(color: accentColor),
               const SizedBox(width: 6),
             ],
             Text(
@@ -1129,280 +1132,11 @@ class _LiveMatchScreenState extends ConsumerState<LiveMatchScreen> {
   }
 }
 
-class _PulseDot extends StatefulWidget {
-  final Color color;
-  const _PulseDot({required this.color});
-
-  @override
-  State<_PulseDot> createState() => _PulseDotState();
-}
-
-class _PulseDotState extends State<_PulseDot>
-    with SingleTickerProviderStateMixin {
-  late final AnimationController _ctrl;
-
-  @override
-  void initState() {
-    super.initState();
-    _ctrl = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 900),
-    )..repeat(reverse: true);
-  }
-
-  @override
-  void dispose() {
-    _ctrl.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return AnimatedBuilder(
-      animation: _ctrl,
-      builder: (_, __) {
-        final t = _ctrl.value;
-        return Container(
-          width: 10 + 4 * t,
-          height: 10 + 4 * t,
-          decoration: BoxDecoration(
-            color: widget.color.withValues(alpha: 0.85 - 0.45 * t),
-            shape: BoxShape.circle,
-            boxShadow: [
-              BoxShadow(
-                color: widget.color.withValues(alpha: 0.4 * (1 - t)),
-                blurRadius: 8 + 6 * t,
-                spreadRadius: 1 + 2 * t,
-              ),
-            ],
-          ),
-        );
-      },
-    );
-  }
-}
-
-// ── Isolated timer widget — prevents 1Hz full-screen rebuilds ──
-
-class _MatchTimerSubtitle extends StatefulWidget {
-  final String ruleLabel;
-  final bool isDoubles;
-  final DateTime createdAt;
-
-  const _MatchTimerSubtitle({
-    required this.ruleLabel,
-    required this.isDoubles,
-    required this.createdAt,
-  });
-
-  @override
-  State<_MatchTimerSubtitle> createState() => _MatchTimerSubtitleState();
-}
-
-// ── Spectator overlay — large scores for tablets/spectators ──
+// The inline widget classes (_PulseDot, _MatchTimerSubtitle,
+// _SpectatorOverlay, _SpectatorTeamColumn) used to live here. They
+// were extracted to focused files under `widgets/` so this screen
+// reads as state + layout rather than an 800-LOC dump:
 //
-// Wrapped as a ConsumerWidget (rather than a captured snapshot) so the
-// display refreshes live as points are scored from the match screen
-// behind the dialog. Previously the overlay showed a frozen view until
-// the user dismissed and re-opened it.
-
-class _SpectatorOverlay extends ConsumerWidget {
-  const _SpectatorOverlay();
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final state = ref.watch(liveMatchProvider);
-    final theme = Theme.of(context);
-    // If the match ended while the overlay was open (e.g. user let the
-    // game time out from the main screen), fall back to a placeholder
-    // so the overlay doesn't crash.
-    if (state == null) {
-      return GestureDetector(
-        onTap: () => Navigator.of(context).pop(),
-        child: Scaffold(
-          body: Center(
-            child: Text(
-              'Match ended',
-              style: theme.textTheme.titleLarge?.copyWith(
-                color: theme.colorScheme.onSurfaceVariant,
-              ),
-            ),
-          ),
-        ),
-      );
-    }
-    final aNames = filteredTeamNames(state, 'A', matchType: state.match.type).join(' & ');
-    final bNames = filteredTeamNames(state, 'B', matchType: state.match.type).join(' & ');
-
-    return GestureDetector(
-      onTap: () => Navigator.of(context).pop(),
-      child: Scaffold(
-        backgroundColor: theme.colorScheme.surface,
-        body: SafeArea(
-          child: Padding(
-            padding: const EdgeInsets.all(24),
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Text(
-                  'Game ${state.currentGame}/${state.gameCount}',
-                  style: theme.textTheme.titleLarge?.copyWith(
-                    color: theme.colorScheme.onSurfaceVariant,
-                  ),
-                ),
-                const SizedBox(height: 32),
-                Row(
-                  children: [
-                    Expanded(
-                      child: _SpectatorTeamColumn(
-                        names: aNames,
-                        score: state.teamAScore,
-                        games: state.teamAGamesWon,
-                        color: courtGreen,
-                        theme: theme,
-                      ),
-                    ),
-                    Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 20),
-                      child: Text(
-                        '–',
-                        style: theme.textTheme.displayLarge?.copyWith(
-                          color: theme.colorScheme.onSurfaceVariant,
-                        ),
-                      ),
-                    ),
-                    Expanded(
-                      child: _SpectatorTeamColumn(
-                        names: bNames,
-                        score: state.teamBScore,
-                        games: state.teamBGamesWon,
-                        color: courtBlue,
-                        theme: theme,
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 40),
-                Text(
-                  'Tap anywhere to exit',
-                  style: theme.textTheme.bodySmall?.copyWith(
-                    color: theme.colorScheme.onSurfaceVariant,
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _SpectatorTeamColumn extends StatelessWidget {
-  final String names;
-  final int score;
-  final int games;
-  final Color color;
-  final ThemeData theme;
-
-  const _SpectatorTeamColumn({
-    required this.names,
-    required this.score,
-    required this.games,
-    required this.color,
-    required this.theme,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Text(
-          names,
-          style: theme.textTheme.titleMedium?.copyWith(
-            fontWeight: FontWeight.w600,
-            color: theme.colorScheme.onSurfaceVariant,
-          ),
-          textAlign: TextAlign.center,
-        ),
-        const SizedBox(height: 12),
-        Text(
-          '$score',
-          style: theme.textTheme.displayLarge?.copyWith(
-            fontSize: 96,
-            fontWeight: FontWeight.w900,
-            color: color,
-            fontFeatures: const [FontFeature.tabularFigures()],
-          ),
-        ),
-        if (games > 0) ...[
-          const SizedBox(height: 8),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: List.generate(
-              games,
-              (_) => Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 3),
-                child: Container(
-                  width: 10,
-                  height: 10,
-                  decoration: BoxDecoration(
-                    color: color,
-                    shape: BoxShape.circle,
-                  ),
-                ),
-              ),
-            ),
-          ),
-        ],
-      ],
-    );
-  }
-}
-
-class _MatchTimerSubtitleState extends State<_MatchTimerSubtitle> {
-  late String _elapsedStr;
-  Timer? _timer;
-
-  @override
-  void initState() {
-    super.initState();
-    _elapsedStr = _formatElapsed(widget.createdAt);
-    _timer = Timer.periodic(const Duration(seconds: 1), (_) {
-      if (mounted) {
-        setState(() => _elapsedStr = _formatElapsed(widget.createdAt));
-      }
-    });
-  }
-
-  @override
-  void didUpdateWidget(covariant _MatchTimerSubtitle old) {
-    super.didUpdateWidget(old);
-    if (old.createdAt != widget.createdAt) {
-      _elapsedStr = _formatElapsed(widget.createdAt);
-    }
-  }
-
-  @override
-  void dispose() {
-    _timer?.cancel();
-    super.dispose();
-  }
-
-  String _formatElapsed(DateTime startTime) {
-    final elapsed = DateTime.now().difference(startTime);
-    return '${elapsed.inMinutes.toString().padLeft(2, '0')}:${(elapsed.inSeconds % 60).toString().padLeft(2, '0')}';
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    return Text(
-      '${widget.ruleLabel} \u2022 ${widget.isDoubles ? "Doubles" : "Singles"} \u2022 $_elapsedStr',
-      style: theme.textTheme.bodySmall?.copyWith(
-        color: theme.colorScheme.onSurfaceVariant,
-      ),
-    );
-  }
-}
+//   widgets/pulse_dot.dart              -- game-point pulsing dot
+//   widgets/match_timer_subtitle.dart   -- 1Hz AppBar clock widget
+//   widgets/spectator_overlay.dart      -- big-score spectator mode
