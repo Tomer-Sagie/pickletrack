@@ -203,36 +203,15 @@ class ScoringService {
         state.serverTeam == 'A' ? Team.A : Team.B;
 
     if (scoringTeam == servingTeam) {
-      // Serving team scores — increment their score
-      var newState = state;
-      if (servingTeam == Team.A) {
-        newState = newState.copyWith(teamAScore: state.teamAScore + 1);
-      } else {
-        newState = newState.copyWith(teamBScore: state.teamBScore + 1);
-      }
-
-      // Doubles: server alternates sides
-      if (state.type == MatchType.doubles) {
-        newState = _alternateServerSide(newState);
-      } else {
-        // Singles: side determined by score parity
-        final serverScore =
-            servingTeam == Team.A ? newState.teamAScore : newState.teamBScore;
-        newState = newState.copyWith(
-          serverSide: serverScore.isEven ? 'right' : 'left',
-        );
-      }
-
-      // Check for game end
-      if (newState.isGameOver) {
-        return _handleGameEnd(newState, scoringTeam);
-      }
-
-      return ScoreResult(
-        newState: newState,
-        eventType: 'point',
-        scorerTeam: scoringTeam == Team.A ? 'A' : 'B',
+      // Serving team scores — increment their score, then apply the
+      // shared side-alternation + game-end check.
+      final scored = state.copyWith(
+        teamAScore:
+            scoringTeam == Team.A ? state.teamAScore + 1 : state.teamAScore,
+        teamBScore:
+            scoringTeam == Team.B ? state.teamBScore + 1 : state.teamBScore,
       );
+      return _applyServedPoint(scored, scoringTeam);
     } else {
       // Non-serving team — side-out (no point scored)
       final winningTeam = state.serverTeam == 'A' ? 'B' : 'A';
@@ -242,21 +221,28 @@ class ScoringService {
 
   /// Rally scoring: any team can score, server changes on rally loss.
   static ScoreResult _recordRallyPoint(MatchState state, Team scoringTeam) {
-    var newState = state;
-    if (scoringTeam == Team.A) {
-      newState = newState.copyWith(teamAScore: state.teamAScore + 1);
-    } else {
-      newState = newState.copyWith(teamBScore: state.teamBScore + 1);
-    }
+    // Increment the scoring team's score first; the rest of the
+    // logic is shared with side-out scoring via [_applyServedPoint].
+    final scored = state.copyWith(
+      teamAScore:
+          scoringTeam == Team.A ? state.teamAScore + 1 : state.teamAScore,
+      teamBScore:
+          scoringTeam == Team.B ? state.teamBScore + 1 : state.teamBScore,
+    );
 
     final servingTeam =
         state.serverTeam == 'A' ? Team.A : Team.B;
 
-    // If the non-serving team scored, side-out (full side-out in rally scoring)
+    // If the non-serving team scored, full side-out (rally scoring
+    // never does the Server 1→2 rotation on lost rally). The
+    // game-end check is the same as the served-point path.
     if (scoringTeam != servingTeam) {
-      newState = _handleSideOut(newState, forceFullSideOut: true, winningTeam: scoringTeam == Team.A ? 'A' : 'B').newState;
+      final newState = _handleSideOut(
+        scored,
+        forceFullSideOut: true,
+        winningTeam: scoringTeam == Team.A ? 'A' : 'B',
+      ).newState;
 
-      // Check for game end
       if (newState.isGameOver) {
         return _handleGameEnd(newState, scoringTeam);
       }
@@ -268,21 +254,38 @@ class ScoringService {
       );
     }
 
-    // Serving team scored — alternate sides (doubles) or score parity (singles)
+    // Serving team scored in rally scoring — same side-alternation
+    // and game-end rules as side-out scoring.
+    return _applyServedPoint(scored, scoringTeam);
+  }
+
+  /// Shared post-score logic for the case where the serving team
+  /// scored: alternate the server's side (doubles: via partner
+  /// swap; singles: based on score parity), then either return a
+  /// `point` event or hand off to game-end handling.
+  ///
+  /// Both side-out and rally scoring use this helper — previously
+  /// the two paths had a 25-line copy-pasted block that drifted
+  /// independently on the last couple of refactors. Now there's
+  /// exactly one place to keep the rules in sync.
+  static ScoreResult _applyServedPoint(MatchState state, Team scoringTeam) {
+    final servingTeam =
+        state.serverTeam == 'A' ? Team.A : Team.B;
+    var newState = state;
     if (state.type == MatchType.doubles) {
       newState = _alternateServerSide(newState);
     } else {
-      final serverScore =
-          servingTeam == Team.A ? newState.teamAScore : newState.teamBScore;
+      // Singles: side determined by score parity.
+      final serverScore = servingTeam == Team.A
+          ? newState.teamAScore
+          : newState.teamBScore;
       newState = newState.copyWith(
         serverSide: serverScore.isEven ? 'right' : 'left',
       );
     }
-
     if (newState.isGameOver) {
       return _handleGameEnd(newState, scoringTeam);
     }
-
     return ScoreResult(
       newState: newState,
       eventType: 'point',
