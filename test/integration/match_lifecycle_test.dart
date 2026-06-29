@@ -41,10 +41,18 @@ void main() {
       await db.setSetting('has_seen_onboarding', 'true');
       await db.setSetting('has_seen_tutorial', 'true');
 
-      // AppBar trailing actions (Home + Share) need >1080px slack in
-      // the test canvas; widen to 1200×2400 so the IconButton centres
-      // sit inside the hit-test region rather than 5px past the edge.
-      tester.view.physicalSize = const Size(1200, 2400);
+      // AppBar trailing actions (Home IconButton + Share PopupMenuButton)
+      // both pull right. On Android/Chromium CI renderers the Home button
+      // centre sits at x ~1214, which is 14px past a 1200-wide canvas. We
+      // widen to 1600×2400 so the trailing buttons sit comfortably inside
+      // the hit-test region on every CI runner.
+      //
+      // Note: the tap warning may include `disabled, disabled` debug
+      // tokens in the IconButton description. Those are cosmetic — just
+      // null `icon`/`color` debug-props, not an actual disabled state.
+      // The `onPressed` handler is wired; the warning is purely
+      // geometric (offset outside the canvas).
+      tester.view.physicalSize = const Size(1600, 2400);
       tester.view.devicePixelRatio = 1.0;
       addTearDown(() {
         tester.view.resetPhysicalSize();
@@ -283,7 +291,9 @@ void main() {
           ],
         );
 
-        tester.view.physicalSize = const Size(1200, 2400);
+        // Trailing actions need the same width as pumpApp (1600) for
+        // any icon tap to hit-test cleanly on Android/Chromium CI.
+        tester.view.physicalSize = const Size(1600, 2400);
         tester.view.devicePixelRatio = 1.0;
         addTearDown(() {
           tester.view.resetPhysicalSize();
