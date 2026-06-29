@@ -46,17 +46,9 @@ class LiveMatchState {
   bool get isMatchOver => scoringState.isMatchOver;
   bool get canUndo => events.isNotEmpty;
 
-  bool isTeamServing(Team team) {
-    final teamStr = team == Team.A ? 'A' : 'B';
-    return serverTeam == teamStr;
-  }
+  bool isTeamServing(Team team) => serverTeam == team.name;
 
-  String? get gameWinnerTeam {
-    final w = scoringState.gameWinner;
-    if (w == Team.A) return 'A';
-    if (w == Team.B) return 'B';
-    return null;
-  }
+  String? get gameWinnerTeam => scoringState.gameWinner?.name;
 
   String get scoreCallout => scoringState.scoreCallout;
 
